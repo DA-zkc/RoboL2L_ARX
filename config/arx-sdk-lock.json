@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/ARXroboticsX/ARX5_beta.git",
+  "commit": "c0f612fe7c9565b0e8c85871d9cd897334b15d7b",
+  "python_abi": "CPython 3.12",
+  "platform": "Linux x86_64 / Ubuntu 24.04",
+  "install_directory": "../ARX5_beta",
+  "environment_variable": "ARX5_SDK_DIR",
+  "included": false,
+  "note": "Vendor precompiled SDK is an external dependency; application code uses it through the resident Runtime owner."
+}

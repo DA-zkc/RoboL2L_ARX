@@ -1,0 +1,8 @@
+{
+  "name": "人工恢复流程 / Operator recovery",
+  "goal": "演示请求人工帮助后重新观察的流程。",
+  "success_criteria": "演示确认消息已记录；这不代表任何真机成功。",
+  "mode": "demo",
+  "demo_outcome": "assist",
+  "guidance": []
+}

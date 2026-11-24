@@ -1,0 +1,29 @@
+{
+  "python": "3.12",
+  "torch": "2.9.1+cu128",
+  "torchvision": "0.24.1+cu128",
+  "sam3": {
+    "repository": "https://github.com/Max-Fu/sam3.git",
+    "vendor": "sam3",
+    "commit": "6fe87d64a5beb9084923d7a9e002741178635b09",
+    "weights_sha256": "9999e2341ceef5e136daa386eecb55cb414446a00ac2b55eb2dfd2f7c3cf8c9e",
+    "module": "cap_harness.providers.sam3.service",
+    "port": 8114
+  },
+  "contact_graspnet": {
+    "repository": "https://github.com/uynitsuj/contact_graspnet_pytorch.git",
+    "vendor": "contact_graspnet_pytorch",
+    "commit": "da3dcfb2f53e43b186083ee4a9d1e232f73efc98",
+    "weights_sha256": "39fc3439d5814043ba64e0715c127c2e8aca6ea376c22614e11af1bc89317762",
+    "module": "cap_harness.providers.graspnet.service",
+    "port": 8115
+  },
+  "panda_py": {
+    "repository": "https://github.com/JeanElsner/panda-py.git",
+    "commit": "4da8a6adffb49a8481739304b2fdff0bb46750fc",
+    "version": "1.1.1",
+    "libfranka": "0.19.0",
+    "patch": "patches/panda_py_deployment.patch",
+    "physical_commissioning": false
+  }
+}

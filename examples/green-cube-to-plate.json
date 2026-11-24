@@ -1,0 +1,10 @@
+{
+  "name": "绿色立方体放入盘子 / Green cube into plate",
+  "goal": "将桌面上的绿色立方体抓起，放入桌面上的盘子中。",
+  "success_criteria": "绿色立方体曾被夹爪实际提离桌面；最终位于盘子内侧的承托区域，夹爪已释放，立方体稳定停留在盘子上；完成后的新观测能够支持上述结果。",
+  "mode": "live",
+  "guidance": [],
+  "pipeline": "cap",
+  "execution_policy": "read_perceive_plan",
+  "validation_criteria": "本轮只验证 FR3/夹爪状态读取、腕部与全局 RGB-D、绿色物体候选与盘子可见表面感知，以及从当前姿态出发的局部离线规划（例如向上 5 mm）。记录模型生成代码、执行结果及反馈；不得以此声明实际抓取放置成功。"
+}

@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RoboL2L · 连接机械臂</title><link rel="stylesheet" href="/hardware.css"></head><body>
+<main class="launcher-main simple-launcher">
+<header class="launcher-top"><a class="brand" href="/"><span class="brand-icon">R</span><span>RoboL2L<small>ROBOT CONTROL</small></span></a></header>
+<h1>连接机械臂 <small>Connect your robot</small></h1>
+<p class="launcher-bookmark">把这一页加入书签：<code>http://127.0.0.1:8770/panel</code> — 已连接时直接进面板，未连接时回到这里。开机后本页自动可用，连接机械臂仍由你点击。<br>Bookmark <code>http://127.0.0.1:8770/panel</code>: it opens a live panel, or lands here when nothing is connected. This page is up after every boot; connecting the robot stays your click.</p>
+<div id="notice" role="status" hidden></div>
+<section class="card">
+<label for="backend-choice">控制库 / Control library</label>
+<select id="backend-choice"><option value="franky">franky</option><option value="panda_py">panda_py</option><option value="arx_x5_2023_dual">ARX X5 (2023) 双臂 / Dual arm</option></select>
+<button id="connect-real" class="primary connect-large">连接真机 / Connect robot</button>
+<p>连接 ARX 会初始化两臂并读取编码器。<br>Connecting ARX initializes both arms and reads their encoders.</p>
+</section>
+<section class="card" id="active-session" hidden>
+<h2 id="session-title"></h2><p id="session-detail"></p>
+<div class="actions"><a id="open-session" class="primary connect-large" href="#">进入控制面板 / Open the control panel ↗</a></div>
+<div class="actions"><button id="reload-session">重载控制台 / Reload console</button><button id="stop-session">结束控制台会话 / End console session</button></div>
+</section>
+<section class="card" id="hardware-maintenance">
+<h2>硬件维护 / Hardware maintenance</h2>
+<p>普通控制台重载保留 ARX 硬件控制。首次迁移旧服务、更新负载模型或停止硬件控制前，必须先让双臂得到可靠支撑；不要依赖电机悬空保持。<br>Console reload retains ARX control. Support both arms before migrating the old service, changing the payload model, or stopping hardware control.</p>
+<label><input type="checkbox" id="hardware-supported">我已确认双臂得到可靠支撑，可以停止电机控制 / Both arms are physically supported; motor control may stop</label>
+<div class="actions"><button id="maintenance-reload">维护重启并加载硬件模型 / Restart hardware and load model</button><button id="maintenance-stop">停止硬件控制 / Stop hardware control</button></div>
+</section>
+<details class="advanced"><summary>开发调试 / Developer tools</summary><p>软件模拟（Mock）只用于测试代码，不连接机械臂或真实相机。<br>Mock is a software simulation. It never connects to physical devices.</p><button data-backend="mock">进入软件模拟 / Open simulation</button></details>
+</main><script src="/launcher.js"></script></body></html>

@@ -1,0 +1,25 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ARX · 双臂手眼标定</title><link rel="stylesheet" href="/arx-calibration.css"><script defer src="/arx-calibration.js"></script></head><body>
+<header><a href="/hardware">← 双臂控制台 / Workbench</a><h1>双臂手眼标定 <small>ARX X5</small></h1></header>
+<main><section id="cameras"><h2>实时画面 <small>Live cameras</small></h2>
+<div class="views">
+<figure><figcaption>全局 / Global <small id="global-state">连接中 / Connecting</small></figcaption><img id="global" alt="全局实时画面" hidden></figure>
+<figure><figcaption>左腕 / Left wrist <small id="left_wrist-state">连接中 / Connecting</small></figcaption><img id="left_wrist" alt="左腕实时画面" hidden></figure>
+<figure><figcaption>右腕 / Right wrist <small id="right_wrist-state">连接中 / Connecting</small></figcaption><img id="right_wrist" alt="右腕实时画面" hidden></figure>
+</div></section><section><h2>固定桌面标定板 <small>ChArUco board</small></h2>
+<p>全局相机和所选腕相机需要同时看到板。在同一批次中保持板、基座和支架固定。 / Keep the board and mounts fixed throughout capture.</p>
+<p>本站标定板 / Station target · <b>CC300-20-15</b>。请对照实物复核预填尺寸。 / Verify nominal lengths on the target.</p>
+<form id="board"><label>横向格数 / Columns<input name="cols" value="14" type="number" min="2" required></label><label>纵向格数 / Rows<input name="rows" value="9" type="number" min="2" required></label>
+<label>格子边长 / Square (mm)<input name="square_mm" value="20" type="number" min="0" step="any" required></label><label>码边长 / Marker (mm)<input name="marker_mm" value="15" type="number" min="0" step="any" required></label>
+<label>字典 / Dictionary<select name="dictionary" data-default="DICT_5X5_100" required><option value="">请选择 / Select</option></select></label>
+<label><input name="legacy" type="checkbox"> 旧版印刷布局 / Legacy pattern</label><button>新建批次 / New session</button></form><p id="batch"></p></section>
+<section><h2>手动摆位与采样 <small>Teach & capture</small></h2>
+<label>当前手臂 / Arm <select id="side"><option value="left">左臂 / Left · can1</option><option value="right">右臂 / Right · can3</option></select></label>
+<p>先扶住选中手臂。按住示教按钮，或聚焦按钮后按住空格脚踏键，进入重力补偿；松键后继续扶住，等本次锁位反馈成功再轻轻卸力。 / Support the arm until measured hold is confirmed. A wrist camera changes the payload.</p>
+<label><input id="support" type="checkbox"> 已托住此臂，可随时断电 / Selected arm supported, power cutoff within reach</label>
+<div class="actions"><button id="teach" disabled>按住拖动 / Hold to guide</button><button id="capture" disabled>记录当前姿态 / Capture sample</button></div>
+<button id="ack-parked" hidden>确认两臂已支撑并复查故障 / Verify parked arms</button>
+<button id="recheck-hold" hidden>复验故障臂当前位置锁位 / Recheck hold at current position</button>
+<p id="capture-result" role="status"></p><p id="mode" role="status"></p><p id="progress"></p>
+<p>采集不同位置与方向的姿态，由标定算法处理样本。每四次中的第四次留作验证。 / Vary position and tilt about two axes. Every fourth pose is held out.</p>
+</section><section><h2>外参与误差 <small>Extrinsics & validation</small></h2><button id="solve" disabled>求解并验算 / Solve & validate</button>
+<div id="report"></div><a id="download" download="arx-extrinsics.json" hidden>下载外参及误差 / Download JSON</a></section><p role="alert" id="notice"></p></main></body></html>

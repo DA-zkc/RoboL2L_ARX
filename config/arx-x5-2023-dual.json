@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "station": "arx-x5-2023-dual",
+  "arms": {
+    "left": "can1",
+    "right": "can3"
+  },
+  "motion_enabled": false,
+  "extrinsics": "arx-x5-2023-dual-extrinsics.json",
+  "commissioning": "arx-x5-2023-dual-commissioning.json",
+  "grasp_geometry": "arx-x5-2023-dual-grasp-geometry.json",
+  "payload": "arx-x5-2023-dual-payload.json",
+  "motion": {},
+  "cameras": {
+    "global": "CP0B163000CK",
+    "left_wrist": "CV2A961001AK",
+    "right_wrist": "CV2A961000DJ"
+  },
+  "preview_sources": {
+    "global": "serial/CP0B163000CK/04",
+    "left_wrist": null,
+    "right_wrist": null
+  },
+  "gripper": null
+}

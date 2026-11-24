@@ -1,0 +1,255 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>RoboL2L · 机器人控制面板</title><link rel="stylesheet" href="/hardware.css"></head><body class="simple-workbench">
+<header class="simple-header"><a class="brand" href="/hardware"><span class="brand-icon">R</span><span>RoboL2L<small>ROBOT CONTROL</small></span></a><span id="backend" class="badge">连接中 / Connecting</span><span id="motion-speed" class="badge" hidden></span><a id="launcher-top" href="http://127.0.0.1:8770">连接 / 换控制库 · Connection ↗</a><a id="launcher-link" hidden href="http://127.0.0.1:8770">连接页 / Connect</a></header>
+<nav class="simple-nav" id="navigation">
+<button class="nav active" data-panel="observe-panel"><span>控制面板<small>Controls</small></span></button>
+<button class="nav" data-panel="cap-panel"><span>CaP 任务<small>CaP tasks</small></span></button>
+<button class="nav" data-panel="experiment-panel"><span>实机实验<small>Experiments</small></span></button>
+<details class="tools-menu"><summary>高级工具 / Advanced</summary><div>
+<button class="nav" data-panel="motion-panel"><span>位姿与规划<small>Pose & planning</small></span></button>
+<button class="nav" data-panel="perception-panel"><span>感知调试<small>Perception</small></span></button>
+<button class="nav" data-panel="api-panel"><span>API 调试<small>API explorer</small></span></button>
+<button class="nav" data-panel="evidence-panel"><span>记录<small>Logs</small></span></button>
+</div></details></nav>
+<main><h1 id="page-title" hidden>控制面板</h1>
+<div id="simulation-banner" class="simulation-banner" hidden>软件模拟：不会连接或移动真实机器人。<small>Software simulation — no physical devices.</small><a id="real-link" href="http://127.0.0.1:8770">连接我的 FR3 / Connect my FR3 ↗</a></div>
+<div class="status-strip"><span id="status">正在连接 / Connecting…</span><div><button id="connect">重新连接 / Reconnect</button><button id="pause">暂停 / Pause</button><button id="resume" hidden>继续 / Continue</button><button id="disconnect-top">结束会话 / End session</button><button id="disarm" hidden>禁用运动 / Disable motion</button></div></div>
+<div id="notice" role="status" hidden></div><div id="action-result" role="status" class="action-result" hidden></div>
+<section class="page-panel" id="observe-panel">
+<section id="endpoint-feedback" class="card" hidden><h2 id="endpoint-title">终点偏差 / Endpoint deviation</h2><strong id="endpoint-summary"></strong><p id="endpoint-delta"></p><p id="endpoint-next"></p><details><summary>各关节偏差与精度阈值 / Joint errors & tolerance</summary><pre id="endpoint-joints"></pre></details></section>
+<section id="dual-controls" hidden><div class="section-heading"><h2>双臂控制 <small>Arm controls</small></h2><a href="/hardware/calibration">手眼标定 / Calibration ↗</a>
+<div class="arms-reading"><span id="arm-reading">尚未读取 / Awaiting state</span><button id="refresh-arms">读取关节 / Read joints</button></div></div>
+<section class="card" data-manual-positioning hidden></section>
+<div class="arx-arms" id="arx-arms"></div>
+<section class="card" id="gripper-release"><h2>松开夹爪 <small>Open gripper</small></h2>
+<p>点击后，将对应夹爪电动张开至已标定开位，放开物体。 / Opens the selected gripper to its calibrated open position to release the object.</p>
+<div class="actions"><button type="button" class="primary" data-release-arm="left" disabled>松开左爪 / Open left</button><button type="button" class="primary" data-release-arm="right" disabled>松开右爪 / Open right</button></div>
+<p id="gripper-release-feedback" role="status"></p></section>
+<details class="card" open id="hand-calibration"><summary>手动夹爪滑条 / Manual gripper control</summary>
+<p>手指离开夹指，一次点动一侧。开位与闭位各记录两次，两次之间先移开再回到同一位置。 / Keep hands clear. Record each endpoint twice, moving away between readings.</p>
+<label>夹爪 / Gripper <select id="cal-hand"><option value="left">左 / Left · can1</option><option value="right">右 / Right · can3</option></select></label>
+<label for="cal-slider">编码器增量 / Encoder increment · <output id="cal-offset">0.00 rad</output></label>
+<input type="range" id="cal-slider" min="-5" max="5" step="1" value="0" disabled aria-valuetext="0.00 rad">
+<p>左拖减小编码器角度，右拖增大。松手执行一次，滑条回中。键盘可用方向键选择，回车执行。 / Drag to select, release to jog once. With a keyboard, select with arrows and press Enter.</p>
+<div class="field-grid"><label>输入方式 / Input mode<select id="cal-input-mode" disabled><option value="delta">相对增量 / Relative change</option><option value="target">目标角度 / Target angle</option></select></label><label for="cal-delta">角度数值 / Angle · rad<input id="cal-delta" type="number" min="-5" max="5" step="any" value="0.25" disabled aria-describedby="cal-delta-help"></label></div>
+<p id="cal-delta-help">相对增量可填 0.5 或 -0.25；目标角度须在 0–5 rad 内。点击执行一次才移动。 / Relative changes can be 0.5 or -0.25; target angles must be within 0–5 rad. Click Execute once to move.</p>
+<p>闭位复测：使用同一个目标角度闭合两次，中间先张开。每次实测 ≤ 0.1 rad 后点“记录闭位”；保存指令目标和两次实测值。已有开位时可单独更新闭位。 / Closed verification: close twice to the same target, reopening between attempts. Record each measured angle ≤ 0.1 rad. Saves the command target and both measurements; retains an existing open endpoint.</p>
+<div class="actions"><button id="cal-execute" disabled>执行一次 / Execute once</button></div>
+<p id="cal-hand-state" role="status"></p>
+<div class="actions" id="hand-calibration-actions">
+<button data-hand-action="acknowledge" hidden>复查并确认本侧夹爪故障 / Review fault</button>
+<button data-hand-action="read">读编码器 / Read</button>
+<button data-hand-action="open_rad">记录开位 / Record open</button><button data-hand-action="closed_rad">记录闭位 / Record closed</button>
+<button data-hand-action="discard">重采本侧 / Discard draft</button></div>
+<pre id="cal-hand-feedback" role="status"></pre></details></section>
+<div class="control-grid" id="single-controls">
+<article class="card"><h2>移动机械臂 <small>Move robot</small></h2><p>相对当前位置，单位 mm。 / Offset from current position, in mm.</p>
+<div class="field-grid"><label>X<input id="move-x" type="number" value="0" step="1"></label><label>Y<input id="move-y" type="number" value="0" step="1"></label><label>Z · 上 / Up<input id="move-z" type="number" value="20" step="1"></label></div>
+<div class="actions"><button id="move-offset" class="primary">移动 / Move</button><button id="preview-offset">只预览 / Preview only</button></div><div id="simple-preview"></div>
+<details class="advanced"><summary>当前位置 / Current position</summary><p id="tcp-value">—</p><span id="robot-mode">尚未读取 / Not read</span><button id="state">刷新 / Refresh</button></details>
+</article>
+<article class="card"><h2>夹爪 <small>Gripper</small></h2><label>开口宽度 / Opening · mm<input id="manual-width" type="number" min="0" max="80" step="1" value="80"></label>
+<div class="actions"><button id="manual-gripper" class="primary">设置宽度 / Set width</button><button data-manual-width="80">打开 / Open</button><button data-manual-width="0">闭合 / Close</button></div><p>当前开口 / Current opening：<strong id="gripper-value">—</strong></p>
+</article></div>
+<section id="arx-views" hidden><div class="section-heading"><h2>实时视角 <small>Camera views</small></h2><button id="preview-toggle">暂停预览 / Pause video</button></div><div id="preview-grid" class="preview-grid"></div></section>
+<div id="calibrated-views"><div class="section-heading"><h2>相机 <small>Cameras</small></h2><div class="actions"><button id="observe">冻结并测量 / Freeze & measure</button><button id="live-all">实时画面 / Live video</button></div></div><span id="observation-value" class="badge">实时 / Live</span><div id="cameras" class="camera-grid"></div>
+<details class="advanced"><summary>定位结果 / Measurements</summary><p>冻结后点击图像获取坐标；Shift + 点击测量区域。 / Click a frozen image for coordinates; Shift + click for a region.</p><pre id="measurement">尚无测量 / No measurement.</pre></details></div>
+</section>
+<section class="page-panel" id="motion-panel" hidden>
+  <div class="two-column">
+    <article class="card"><div class="step-label">01 / PLAN</div><h2>目标位姿与 IK <small>Goal pose & IK</small></h2><p>米、四元数 wxyz、基座坐标系。先预览，再显式执行。<br>Metres, quaternion wxyz, base frame. Preview before explicit execution.</p>
+      <button id="use-current" class="quiet">填入当前位姿 / Use current pose</button>
+      <div class="field-grid"><label>X · m<input id="px" type="number" step="0.001" value="0"></label><label>Y · m<input id="py" type="number" step="0.001" value="0"></label><label>Z · m<input id="pz" type="number" step="0.001" value="0.31"></label></div>
+      <div class="field-grid four"><label>qw<input id="qw" type="number" step="0.01" value="1"></label><label>qx<input id="qx" type="number" step="0.01" value="0"></label><label>qy<input id="qy" type="number" step="0.01" value="0"></label><label>qz<input id="qz" type="number" step="0.01" value="0"></label></div>
+      <label>仅调整目标 / Offset goal only · mm</label><div class="field-grid"><input aria-label="Offset X mm" id="dx" type="number" value="0"><input aria-label="Offset Y mm" id="dy" type="number" value="0"><input aria-label="Offset Z mm" id="dz" type="number" value="20"></div><button id="offset" class="quiet">当前位姿 + 偏移 / Current pose + offset</button>
+      <div class="actions"><button id="ik">求解 IK / Solve IK</button><button id="plan" class="primary">规划预览 / Preview plan</button></div>
+    </article>
+    <article class="card"><div class="step-label">02 / REVIEW & EXECUTE</div><h2>计划预览 <small>Trajectory preview</small></h2><div id="preview" class="preview-empty">生成计划后显示 XY / XZ / YZ 投影。<br>Generate a plan to see the projected path.</div><p id="plan-summary">未登记计划 / No registered plan.</p><button id="execute" class="primary" disabled>移动到目标 / Move to target</button><p>计划过期或起始状态变化时需重新规划。<br>Replan if the plan expires or the starting state changes.</p></article>
+    <article class="card"><h2>夹爪 <small>Gripper</small></h2><p>0 = 闭合，1 = 完全张开；执行范围由 adapter 声明。<br>0 = closed, 1 = fully open; adapter limits still apply.</p><label>归一化开度 / Normalized opening<input id="width" type="number" min="0" max="1" step="0.05" value="1"></label><div class="actions"><button id="gripper" data-motion>设置开度 / Set opening</button><button id="open-gripper" data-motion>打开 / Open</button><button id="close-gripper" data-motion>接触抓取 / Contact grasp</button></div><p>接触抓取需要本次观测的物体几何和可行抓取姿态。<br>Contact grasp requires observed object geometry and a feasible grasp pose.</p></article>
+    <article class="card authorization" hidden><h2>本次人工实验 <small>Manual experiment</small></h2><p>可在这里分开调试规划和执行。日常移动使用控制面板即可。<br>Use this page to debug planning and execution separately. Use the control panel for everyday moves.</p><label hidden>本次动作范围 / Authorized actions<input id="authorization" type="hidden" value="Human enabled manual control in the panel"></label><label hidden>首次离台幅度 / Initial probe<select id="probe-distance"><option value="0.02">20 mm</option><option value="0.004">4 mm</option></select></label><button id="arm" class="warning">启用手动控制 / Enable manual control</button><pre id="policy"></pre></article>
+  </div>
+</section>
+<section class="page-panel" id="perception-panel" hidden>
+  <p id="provider-status">正在读取感知服务状态 / Reading perception service status…</p><div class="section-heading"><div><h2>同一帧观测，完整感知链路 <small>One frozen RGB-D snapshot</small></h2><p>分割 → 点云 → 几何 / 抓取候选。没有服务或有效深度时显示实际错误。<br>Segmentation → point cloud → geometry / grasps. Missing services or depth return actual errors.</p></div><button id="perception-freeze">重新冻结 / New snapshot</button></div>
+  <div class="two-column"><article class="card"><div class="step-label">SEMANTICS / RGB-D</div><label>相机 / Camera<select id="perception-camera"></select></label><label>文本描述 / Text query<input id="query" value="green cube"></label><div class="actions"><button id="segment" class="primary">文本分割 / Segment text</button><button id="localize">自动定位 / Localize object</button><button id="perceive-all" class="primary">一键识别与抓取候选 / Detect & propose grasps</button></div><label>候选编号 / Segmentation index<input id="candidate" type="number" min="0" value="0"></label><div class="actions"><button id="project">分割转点云 / Mask → cloud</button><button id="geometry">估计几何 / Estimate geometry</button></div><p>选择编号对应返回的 segmentations。遮罩绑定冻结帧，重新冻结后需重新分割。<br>The index selects a returned segmentation. Freeze a new frame to start a new perception chain.</p></article>
+  <article class="card"><div class="step-label">CONTACT-GRASPNET / TCP</div><h2>抓取候选 <small>Grasp proposals</small></h2><label>最多候选数 / Maximum candidates<input id="grasp-count" type="number" min="1" value="5"></label><div class="actions"><button id="grasps" class="primary">生成抓取 / Generate grasps</button><button id="select-grasp">选择俯视抓取 / Select top-down</button></div><p>仅生成位姿，不执行动作。姿态已转换到配置的 FR3 Hand TCP。<br>Returns poses only, without motion. Poses use the configured FR3 Hand TCP.</p><div id="perception-output" class="summary-box">等待查询 / Waiting for a query.</div></article></div>
+  <div class="card"><h3>分割覆盖图与证据 / Overlays & artifacts</h3><div id="overlays" class="overlay-grid"></div></div>
+</section>
+<section class="page-panel" id="api-panel" hidden>
+  <div class="section-heading"><div><h2>与 CaP 共用的公开 API <small>Shared public API</small></h2><p>可调用所有当前支持的工具。大型结果通过引用复用，无需复制图像或点云。<br>Call every supported tool. Reuse typed references instead of copying images or point clouds.</p></div><span id="api-count" class="badge"></span></div>
+  <div class="two-column"><article class="card"><label>接口 / Function<select id="api-tool"></select></label><code id="signature"></code><label>参数 / JSON arguments<textarea id="api-arguments" class="code-input" spellcheck="false">{}</textarea></label><button id="api-call" class="primary">调用 API / Call API</button><p id="api-reason"></p></article><article class="card"><h3>结果引用 / Result references</h3><p><code>{"$ref":"id","path":["segmentations",0]}</code><br><code>{"$pose":{"position":[0,0,0.3],"quaternion_wxyz":[1,0,0,0],"frame":"base"}}</code><br><code>{"$array":[[80,60]]}</code></p><div id="references" class="reference-list"></div></article></div>
+  <article class="card"><h3>支持范围 / Capability catalogue</h3><div id="catalogue" class="catalogue"></div></article>
+</section>
+<section class="page-panel" id="cap-panel" hidden>
+  <p id="model-status"></p><div class="two-column cap-layout"><article class="card"><div class="step-label">LANGUAGE → CODE → FEEDBACK</div><h2>启动 CaP <small>Run an autonomous task</small></h2><p><a href="/" target="_blank" rel="noopener">模型 API 配置 / Model API settings ↗</a></p><label>模型入口 / Model<select id="cap-model"><option value="codex">使用 Codex 额度 / Codex plan</option><option value="fixture">软件测试模型 / Software test fixture</option><option value="configured" selected>已配置 API 模型 / Configured API model</option></select></label><label>任务 / Task<select id="cap-task"><option value="mock">Mock 生成、执行、修复 / Mock loop</option><option value="visual">绿色方块抓放：只读准备 / Read-only preparation</option><option value="joint">双臂关节任务 / Dual-arm joint task</option><option value="probe">真机离台试运动 / Physical clearance probe</option><option value="pick-place">真机绿色方块放到盘中 / Physical pick and place</option></select></label><label id="joint-goal-label" hidden>双臂任务 / Dual-arm goal<input id="joint-goal" value="左右腕 J6 各向相反方向慢速转动 3°，报告编码器实测位移。"></label><label hidden>真机任务授权 / Physical task authorization<input id="cap-authorization" type="hidden" value="Human started the selected physical CaP task in the panel"></label><label>诊断幅度 / Probe distance<select id="cap-distance"><option value="0.02">20 mm</option><option value="0.004">4 mm</option></select></label><div id="cap-continuation" hidden><label>补充说明（可选） / Optional note<textarea id="cap-message" rows="2" placeholder="可直接点击继续，AI 会重新观察并修订程序 / Continue directly, or add a note"></textarea></label><button id="cap-continue" class="primary">继续当前任务 / Continue current task</button><p>保留原对话、程序版本和执行记录。 / Keep conversation, program versions and execution records.</p></div><div class="actions"><button id="cap-start" class="primary">启动所选任务 / Start selected task</button><button id="cap-pause">暂停下一次派发 / Pause CaP</button><button id="cap-prepare" class="quiet">查看抓放任务要求 / Task requirements</button></div><p>Codex 沿用本机 ChatGPT 登录，无需 API key；API 模型使用服务端已有密钥。<br>Codex uses your local ChatGPT login. API models use the existing server key.</p></article>
+  <article class="card cap-conversation"><div class="section-heading"><h2>任务对话 <small>Task conversation</small></h2><span id="cap-state-label" class="badge">未启动 / Idle</span></div>
+<div id="cap-outcome" class="cap-outcome" role="status"><strong id="cap-outcome-title">尚未启动 / Not started</strong><p id="cap-feedback">每轮输入、AI 程序与执行反馈会显示在下方。 / Inputs, AI programs and feedback appear below.</p><div class="cap-next"><strong>接下来 / Next step</strong><p id="cap-next-step">选择左侧任务后开始，无需重启程序。 / Choose a task to start; no restart needed.</p><small id="cap-next-en"></small></div></div>
+<div class="cap-chat-heading"><span>每轮：输入 → AI → 执行 / Input → AI → Execution</span><button id="cap-collapse" class="quiet">全部折叠 / Collapse all</button></div>
+<div id="cap-chat" class="cap-chat" aria-label="CaP 任务对话 / Task conversation"><p class="cap-empty">尚无对话 / No conversation yet.</p></div>
+<details class="cap-raw"><summary>原始状态与验证证据 / Raw state & verification</summary><pre id="cap-status">尚无任务 / No task yet.</pre></details></article></div>
+</section>
+<section class="page-panel" id="experiment-panel" hidden>
+<div class="section-heading"><div><h2>单任务实机实验 <small>Single-task experiment</small></h2></div><span id="exp-device" class="badge">未启动 / Idle</span></div>
+
+<div class="exp-workspace" id="exp-workspace">
+<div class="exp-editor" id="exp-editor" tabindex="0" aria-label="实验配置与记录 / Experiment settings and records">
+<details class="card"><summary>当前步骤详情 / Current step details</summary>
+<p>开始前摆好场景 → 开始并冻结初始状态 → 首次直接观察、写程序 → 机器检查通过 → Runtime 授权执行。后续重试才进入复位流程，始终回到首次快照。版本记录持续保留，不自动 Home。<br>Prepare the scene before Start; capture the initial state and proceed directly to observation and code generation. Runtime executes after machine checks. Only retries enter the reset flow, always using the first snapshot. Version history is retained; no automatic Home.</p>
+    <p class="exp-now-detail" id="exp-now-detail">Describe the task, prepare the scene, then start.</p>
+</details>
+
+
+
+
+<section class="card" id="exp-manual-positioning" data-manual-positioning hidden></section>
+<article class="card" id="exp-start-card"><h3>开始实验 <small>Start experiment</small></h3>
+
+<details id="exp-preset-box" class="exp-preset-box"><summary>从常用任务载入 <span id="exp-preset-count" class="badge"></span></summary>
+<input id="exp-preset-search" placeholder="按名称搜索 / Search by name" autocomplete="off">
+<div id="exp-preset-list" class="exp-preset-list"></div>
+</details>
+
+<label>1 · 任务目标 / Task goal<textarea id="exp-goal" rows="3" placeholder="例如：把绿色方块放进盘子 / Place the green cube inside the plate"></textarea></label>
+<label>2 · 完成条件 / Completion criteria<textarea id="exp-criteria" rows="2" placeholder="描述可观察的完成现象 / Describe observable completion"></textarea></label>
+
+<div class="exp-attach">
+<span class="exp-attach-label">3 · 参考资料（可选） / Reference material (optional)</span>
+<p>一个 zip，里面的文字会随每轮提示发给 Agent，作为可借鉴的经验。<br>A zip whose text ships with every turn as experience the agent may learn from.</p>
+<div class="exp-attach-row">
+<button id="exp-skills-choose" type="button">选择 zip 文件 / Choose a zip</button>
+<select id="exp-skills-pick"></select>
+</div>
+<input id="exp-skills-file" type="file" accept=".zip,application/zip" hidden>
+<div id="exp-skills-preview" class="exp-skills-preview"></div>
+</div>
+
+<label>4 · 推荐运行速度 / Recommended speed factor<input id="exp-speed" type="number" min="0.01" max="1" step="0.01" value="0.05"></label>
+<p class="exp-speed-note">这是给 Agent 的<strong>推荐起始速度</strong>，不是硬性限速：主机不做钳制，Agent 会在接触、放置和持物时自行调低，并在说明里解释。0&lt;s&le;1。<br>A recommended starting speed handed to the agent, not a hard cap — the host does not clamp it. The agent goes lower near contact, placement and while holding an object, and explains its choice.</p>
+
+<div class="exp-attach">
+<span class="exp-attach-label">5 · 录像（可选） / Record video (optional)</span>
+<p>勾选的相机会在每一版执行期间录制 RGB，存进该版记录。录像只采样现有画面，不影响采集或动作。<br>Checked cameras record RGB while each version executes, stored with that version. Recording only samples the existing stream; it never affects capture or motion.</p>
+<div id="exp-record-cameras" class="exp-record-cameras"></div>
+</div>
+
+<button id="exp-start" class="primary exp-go">开始实验并记录初始状态 / Start &amp; capture initial state</button>
+<p>请先摆好双臂、夹爪和物体，再点击开始。点击即确认当前场景并授权本次任务：冻结首次快照后直接观察、写代码，通过机器检查后执行；首次不回位、不再要求复位确认。后续复位始终以首次快照为准。上次实验的故障闭锁仅在机器人状态读取正常时确认解除。<br>Prepare both arms, grippers and objects before Start. Clicking confirms the scene and authorizes this task: capture the first snapshot, observe, generate code and execute after machine checks. No initial return or extra reset confirmation. Later returns always use the first snapshot. A previous fault latch is acknowledged only after a healthy device read.</p>
+
+<details class="exp-save-case"><summary>把当前内容存为常用任务 / Save this as a case</summary>
+<div class="exp-preset-save"><label>名称 / Name<input id="exp-preset-name" maxlength="120" placeholder="给这个任务起个名字 / Name this case"></label>
+<button id="exp-preset-save" class="quiet">保存 / Save</button></div>
+<p id="exp-preset-state" class="exp-preset-state"></p>
+</details>
+
+
+</article>
+<article class="card" id="exp-reset-card"><h3>复位与下一版 <small>Reset & next version</small></h3>
+<div id="exp-review-retry-controls" hidden><p>模型复盘失败可单独重试；不复位、不执行程序、不增加实验次数。<br>Retry model review only, without returning the arms, executing code or consuming an attempt.</p><button id="exp-retry-review" class="primary">仅重试复盘 / Retry review only</button></div>
+<p>点击下方按钮，授权双臂自动回到本次实验首次记录的位置；回位验证成功后，自动读取新观测并写下一版。物体和夹爪由你整理，回位只移动机械臂。<br>Authorize both arms to return to this experiment’s first recorded pose. After verified return, a fresh observation starts the next version. Arrange props and grippers yourself; return moves the arms only.</p>
+<p>如果观察到左爪或右爪仍抓着物体，请先点击对应的“松开左爪”或“松开右爪”，并自行把物品放回原位。确认物品已整理好、机械臂可以复位后，再点击“授权自动复位并继续”。<br>If either gripper is still holding an object, first click Open left or Open right for that gripper, then manually put the objects back in their original places. Only after arranging the objects and confirming the arms can return should you click Authorize reset &amp; continue.</p>
+<div class="actions"><button type="button" class="primary" data-release-arm="left" data-release-feedback="exp-reset-gripper-feedback" disabled>松开左爪 / Open left</button><button type="button" class="primary" data-release-arm="right" data-release-feedback="exp-reset-gripper-feedback" disabled>松开右爪 / Open right</button></div>
+<p id="exp-reset-gripper-feedback" role="status"></p>
+<div class="actions"><button id="exp-unlock">恢复控制器故障 / Recover controller fault</button></div>
+
+<label>人工干预说明 / Intervention note<textarea id="exp-note" rows="2" placeholder="这次复位做了什么 / What you did during this reset"></textarea></label>
+<button id="exp-confirm" class="primary">授权自动复位并继续 / Authorize reset & continue</button>
+<p>此次授权允许按实验复位流程返回首次记录的关节目标并续跑。ARX 不使用项目自定的运动幅度或静止阈值；回执报告 SDK 指令状态和实测偏差，不代表物品已复原。硬件故障、结果未知、暂停或调用失败时停止。<br>This authorizes returning to the initial joint targets through the experiment reset flow. ARX reports SDK command status and measured deviation without project motion thresholds. Props are not automatically restored. Hardware faults, unknown outcomes, pause or call failures stop continuation.</p>
+</article>
+<article class="card" id="exp-prompt-card"><div class="section-heading"><div><h3>发给 Agent 的内容 <small>What the agent receives</small></h3><p>任务目标、完成条件和技能库是这条消息里的填空；其余是机器生成的上下文。<br>Goal, criteria and the skill library are the blanks you fill in this message; the rest is machine-generated context.</p></div><button id="exp-prompt-refresh">读取当前内容 / Load current payload</button></div>
+<div id="exp-prompt-summary" class="exp-prompt-summary">实验开始后可读取。<br>Available once an experiment has started.</div>
+<div id="exp-prompt-body"></div></article>
+
+
+<article class="card" id="exp-versions-card"><h3>版本记录 <small>Version records</small></h3>
+<p id="exp-versions-empty">开始实验后，每一版的分析、程序和执行轨迹都会出现在这里。<br>After starting, every version’s analysis, program and execution trace appears here.</p>
+<div id="exp-versions" class="exp-versions"></div></article>
+
+
+<article class="card" id="exp-skills-card"><div class="section-heading"><div><h3>已保存的参考资料 <small>Saved reference material</small></h3><p>在「开始实验」里选过的 zip 会留在这里，下次可直接从下拉里选。启用中的那份随每轮提示发给 Agent，并注明是可借鉴的经验而非指令。<br>Every zip you pick in Start experiment is kept here for reuse. The active one ships with each turn, labelled as experience to learn from, not instructions.</p></div><span id="exp-skills-state" class="badge">未启用 / None active</span></div>
+<div id="exp-skills-libraries" class="exp-profiles"></div>
+<p>只保留文本文件（.md/.txt/.py/.json/.yaml 等），单文件上限 256 KB，最多 400 个文件；二进制、隐藏文件和越界路径会被丢弃，内容永不执行。<br>Text files only, 256 KB per file, 400 files max. Binaries, hidden files and traversal paths are dropped; nothing in the archive is ever executed.</p>
+</article>
+
+<article class="card" id="exp-records-card"><div class="section-heading"><div><h3>实验记录 <small>Experiment records</small></h3><p>每次实验的完整证据都保存在磁盘上，可回看和导出。<br>Every run's full evidence stays on disk for review and export.</p></div><button id="exp-records-refresh">刷新 / Refresh</button></div>
+<div class="exp-records-bulk">
+<label class="exp-check"><input type="checkbox" id="exp-records-all">全选 / Select all</label>
+<span id="exp-records-selected" class="exp-preset-state"></span>
+<input id="exp-records-tags" placeholder="标签，逗号分隔 / Tags, comma separated" autocomplete="off">
+<button id="exp-records-tag" class="quiet">打标签 / Apply tags</button>
+<button id="exp-records-delete" class="danger">删除所选 / Delete selected</button>
+</div>
+<p id="exp-records-path" class="exp-records-path"></p>
+<div id="exp-records" class="exp-records"></div></article>
+
+<div class="two-column">
+<article class="card" id="exp-initial-card"><h3>初始状态参照 <small>Initial state reference</small></h3>
+<div id="exp-initial-images" class="camera-grid"></div>
+<table class="exp-table" id="exp-initial-table"></table>
+<details><summary>完整初始观测 / Full initial observation</summary><pre id="exp-initial">尚未记录 / Not captured</pre></details></article>
+<article class="card"><h3>人工干预与流程 <small>Interventions & flow</small></h3>
+<ol class="exp-trail" id="exp-trail"></ol>
+<details><summary>原始状态记录 / Raw records</summary><pre id="exp-events"></pre></details></article></div>
+
+
+<article class="card" id="exp-settings"><div class="section-heading"><div><h3>Agent 模型与 API 配置 <small>Agent model &amp; API settings</small></h3><p>选择 Codex 或 API，再保存为后续实验的默认入口。支持 OpenAI 兼容接口和 Claude，可保存多套配置。<br>Choose Codex or API and save it for subsequent experiments. Supports OpenAI-compatible APIs, Claude, and multiple profiles.</p></div><span id="exp-active-model" class="badge">读取中 / Loading</span></div>
+<label>入口 / Mode<select id="exp-mode"><option value="codex">Codex 额度 / Codex plan</option><option value="api">API</option><option value="fixture">Mock 软件模型 / Software fixture</option></select></label>
+<div id="exp-codex-fields"><div class="two-column"><label>Codex 模型（留空沿用现有配置） / Codex model<input id="exp-codex-model" placeholder="留空即沿用 / Blank keeps current"></label>
+<label>思考深度 / Reasoning<select id="exp-reasoning"><option>none</option><option>low</option><option selected>medium</option><option>high</option><option>xhigh</option></select></label></div>
+<p>Codex 沿用本机 ChatGPT 登录，不需要 API key，也不会自动切换到付费 API。<br>Codex reuses your local ChatGPT login. No API key, and it never falls back to a paid API.</p></div>
+<div id="exp-api-fields">
+<h4>已保存的配置 <small>Saved profiles</small></h4>
+<div id="exp-profile-list" class="exp-profiles"></div>
+<button id="exp-new-profile" type="button">新增配置 / Add profile</button>
+<div class="exp-form" id="exp-form">
+<strong id="exp-form-title">编辑配置 / Edit profile</strong>
+<label>配置名称 / Profile name<input id="exp-profile-name" maxlength="100" placeholder="例如：Claude 主账号 / Claude primary"></label>
+<label>API 提供商 / Provider<select id="exp-provider"><option value="openai">ChatGPT / OpenAI-compatible API</option><option value="claude">Claude Messages API</option></select></label>
+<label>Base URL（包含 /v1）<input id="exp-base-url" type="url" placeholder="https://api.openai.com/v1"></label>
+<label>API 模型 / Model<input id="exp-api-model" placeholder="模型名 / Model name"></label>
+<label>思考深度 / Reasoning<select id="exp-api-reasoning"><option>none</option><option>low</option><option selected>medium</option><option>high</option><option>xhigh</option></select></label>
+<label>密钥环境变量名（可选） / API key environment variable (optional)<input id="exp-api-key-env" placeholder="ROBOT_MODEL_API_KEY" autocomplete="off" spellcheck="false"></label>
+<p id="exp-env-reload" hidden>环境变量名编辑将在下次后台重载后启用。现有 API 配置仍可使用。<br>Editing the environment variable name requires a server reload. Existing API configuration remains available.</p>
+<p>填写运行控制台的服务端环境变量名。也可在下方输入 key；已存 key 优先，删除后才使用环境变量。<br>Use an environment variable from the console server. A saved key takes precedence; clear it to use the environment variable.</p>
+<label>API key（留空保留已存 key） / Key (blank keeps the saved key)<input id="exp-api-key" type="password" autocomplete="new-password"></label>
+<label class="exp-check"><input type="checkbox" id="exp-clear-key">删除已存 key / Delete saved key</label>
+<p id="exp-key-status"></p>
+</div></div>
+<p id="exp-settings-lock" role="status" hidden></p>
+<div class="actions"><button id="exp-save-settings" class="primary">保存并设为默认 / Save as default</button><button id="exp-cancel-edit" class="quiet">取消编辑 / Cancel edit</button></div>
+<p>Key 以明文保存在本机仅当前用户可读写的配置文件里，不回显、不写入实验记录或导出。实验进行中可以编辑，结束后才能保存生效。<br>Keys are stored in plain text in a local owner-only file; they are never echoed, logged or exported. Settings can be edited during a run and saved after it ends.</p>
+</article>
+
+</div>
+<aside class="exp-monitor" aria-label="流程、进度与机器状态 / Pipeline, progress and machine status">
+<div class="exp-monitor-summary">
+<article class="exp-now" id="exp-now" data-actor="idle">
+    <p class="exp-actor" id="exp-actor">尚未开始 / Not started</p>
+    <strong id="exp-now-title">填写任务，布置好场景再开始</strong>
+
+    <div class="exp-budget" id="exp-budget" aria-label="程序版本记录 / Program version history"></div>
+    <p class="exp-budget-note" id="exp-budget-note">程序版本记录 / Program versions</p>
+  </article><article class="card exp-machine-status" id="exp-machine-status" aria-live="polite">
+<h3>机器状态 <small>Machine status</small></h3>
+<dl class="exp-status-grid">
+<div><dt>设备连接 / Connection</dt><dd id="exp-machine-connection">读取中 / Loading</dd></div>
+<div><dt>故障闭锁 / Fault lock</dt><dd id="exp-machine-fault">读取中 / Loading</dd></div>
+<div><dt>运动授权 / Motion</dt><dd id="exp-machine-motion">读取中 / Loading</dd></div>
+<div><dt>模型保存 / Model settings</dt><dd id="exp-machine-settings">读取中 / Loading</dd></div>
+</dl>
+<p id="exp-machine-error" hidden></p>
+<div class="actions"><button id="exp-pause">暂停下一次派发 / Pause dispatch</button><button id="exp-end">结束实验 / End experiment</button></div>
+<p>暂停是派发边界，不是急停。重启只加载记录，不续跑。<br>Pause is a dispatch boundary, not an emergency stop. Restart loads records only and never resumes.</p></article></div><figure class="exp-flow-wrap">
+    <figcaption>实验流程：高亮的是当前这一步 <small>Live flow — the highlighted node is where you are now</small></figcaption>
+    <div id="exp-flow-trail" class="exp-flow-trail" aria-label="最近经过的步骤 / Recent steps"></div>
+    <div id="exp-flow" class="exp-flow" role="img" aria-label="实验流程图 / Experiment flow diagram"></div>
+    <p class="exp-legend"><span class="exp-key exp-key-human"></span>需要你动手 / Your turn<span class="exp-key exp-key-machine"></span>机器在做 / Machine<span class="exp-key exp-key-done"></span>已走过 / Done</p>
+  </figure></aside>
+</div>
+</section>
+<section class="page-panel" id="evidence-panel" hidden>
+  <div class="section-heading"><div><h2>每次调用都有记录 <small>Calls, receipts & evidence</small></h2><p>人工调试、软件输出、物理执行结果分别标记。<br>Manual debugging, synthetic outputs and physical receipts remain distinct.</p></div><button id="refresh-evidence">刷新记录 / Refresh</button></div>
+  <div class="two-column"><article class="card"><h3>调用记录 / Jobs</h3><div id="job-list"></div></article><article class="card"><h3>证据文件 / Artifacts</h3><div id="artifact-list"></div></article></div><details class="card"><summary>Runtime 事件 / Runtime events</summary><pre id="events"></pre></details>
+  <article class="card"><h3>结束会话 / End session</h3><p>空闲时结束控制台会话并停止后续派发。常驻 ARX 控制器继续运行，夹爪保留原目标；必要时请求机械臂停止并保持。要停止底层硬件控制，请先可靠支撑双臂，再使用启动器的“硬件维护”。<br>End the idle console session and stop further dispatch. Resident ARX control remains running, retains gripper targets, and requests arm hold when needed. Physically support both arms before stopping hardware control through Hardware maintenance.</p><button id="end-session" class="danger">结束会话并返回 / End session & return</button></article>
+</section>
+
+<details class="card result-dock"><summary>技术详情 / Technical details <span id="result-kind" class="badge">—</span></summary><pre id="output">尚无操作 / No operation.</pre></details>
+</main><script src="/cap-chat.js"></script><script src="/hardware.js"></script><script src="/experiment.js"></script><script src="/manual-positioning.js"></script></body></html>

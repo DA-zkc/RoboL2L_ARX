@@ -1,0 +1,164 @@
+{
+  "ports": {
+    "left": "can1",
+    "right": "can3"
+  },
+  "home": {
+    "joint_positions": {
+      "left": [
+        0.08869306477454764,
+        0.0005722133211261138,
+        0.002861066605630569,
+        -0.046730754558632626,
+        -0.0040054932478827965,
+        0.07953765163652982
+      ],
+      "right": [
+        -0.03490501258869294,
+        0.003242542153047978,
+        -0.000953688868543523,
+        -0.02155336842908362,
+        -0.051689936675058945,
+        -0.056267643244067855
+      ]
+    },
+    "joint_names": {
+      "left": [
+        "joint1",
+        "joint2",
+        "joint3",
+        "joint4",
+        "joint5",
+        "joint6"
+      ],
+      "right": [
+        "joint1",
+        "joint2",
+        "joint3",
+        "joint4",
+        "joint5",
+        "joint6"
+      ]
+    },
+    "timestamp_s": 1795349458.6656146,
+    "embodiment": "arx_x5_2023_dual",
+    "source": "operator_measured_station_home",
+    "device_binding": "99c0e9bb40d8f211e64068d375e3ead79dc658c98e75aff5e1985fb87cd3cae8",
+    "session": "5195fe3ec0f640829d92870cbabf44c5",
+    "sample_jobs": [
+      "home-reference-51a29821e97f4419bdd4f5e4e1735b01",
+      "home-reference-213aa1bafdb847edb38e937740f5513c",
+      "home-reference-d1bc3eefdf404202b5e6f8105bbd86ae"
+    ]
+  },
+  "grippers": {
+    "left": {
+      "open_rad": 4.869344625009536,
+      "closed_rad": 0.02
+    },
+    "right": {
+      "closed_rad": 0.01,
+      "open_rad": 4.7793
+    }
+  },
+  "gripper_validation": {
+    "status": "operator_confirmed_calibration",
+    "operator_confirmation": "现在左边的0.02右边的0.01就是标准闭位",
+    "confirmed_at_s": 1795428295.4190738,
+    "repeatability_verified": false,
+    "sides": {
+      "left": {
+        "status": "operator_confirmed",
+        "command_rad": 0.02,
+        "maximum_measured_rad": 0.1,
+        "measured_rad": [
+          0.070382238498512
+        ],
+        "source_job": "a07b4cec-bc80-4f3d-a8f9-037aff5b6041",
+        "source_session": "cbb305e2d45c43719275a227d8a50bde",
+        "source": "operator_confirmation_and_runtime_receipt",
+        "repeatability_verified": false,
+        "timestamp_s": 1795428295.4190738,
+        "open_command_rad": 4.869344625009536,
+        "open_status": "operator_confirmed"
+      },
+      "right": {
+        "status": "operator_confirmed",
+        "command_rad": 0.01,
+        "maximum_measured_rad": 0.1,
+        "measured_rad": [
+          0.028038452735179575
+        ],
+        "source_job": "0fc82dd6-b2d4-487f-ac9e-c2961947bce0",
+        "source_session": "cbb305e2d45c43719275a227d8a50bde",
+        "source": "operator_confirmation_and_runtime_receipt",
+        "repeatability_verified": false,
+        "timestamp_s": 1795428295.4190738,
+        "open_command_rad": 4.7793,
+        "open_status": "operator_confirmed",
+        "open_receipt": {
+          "target_rad": 4.7793,
+          "measured_rad": 4.813267719539176,
+          "source_job": "7004f07e-2252-4750-996c-265f1f174162",
+          "source_session": "f3f8fbb05efa43b896b37d33df4c62b8",
+          "result_ok": true
+        }
+      }
+    },
+    "prior_trial": {
+      "status": "closed_endpoints_rejected_remeasurement_pending",
+      "source_side": "left",
+      "source_events": "RoboL2L/.franka-player/panel/sessions/5047efa6d4914c8bb927f7fe6daa3944/hardware/events.jsonl",
+      "source_measurements": {
+        "open_rad": {
+          "timestamp_s": 1795426291.7395692,
+          "sample_count": 1
+        },
+        "closed_rad": {
+          "timestamp_s": 1795426666.3389113,
+          "sample_count": 1
+        }
+      },
+      "right_independently_measured": false,
+      "repeatability_verified": false,
+      "requested_by": "operator",
+      "request": "Copy the left endpoints to the right for operator evaluation; adopt as final only after operator confirmation.",
+      "created_at_s": 1795426792.408587,
+      "operator_feedback": "Both grippers fail to close tightly and differ; remeasure closed endpoints independently.",
+      "feedback_at_s": 1795427069.3662565,
+      "right_offset_trial": {
+        "status": "pending_operator_confirmation",
+        "offset_rad": -0.02,
+        "base_endpoints": {
+          "closed_rad": 0.02,
+          "open_rad": 4.869344625009536
+        },
+        "applied_endpoints": {
+          "closed_rad": 0.0,
+          "open_rad": 4.849344625009536
+        },
+        "previous_configured_endpoints": {
+          "open_rad": 4.869344625009536,
+          "closed_rad": 0.0707637140459294
+        },
+        "closed_target_source_job": "b7294da3-bac7-4076-b106-605be6f1f350",
+        "source_session": "65676c5f374447688b1a6e968978ddd0",
+        "created_at_s": 1795428062.3223498,
+        "scope": "Offset baked into right gripper endpoints for normalized API commands. Raw calibration targets remain explicit encoder angles."
+      }
+    },
+    "offset_application": "Current grippers values are absolute command endpoints. Prior trial offsets are historical and must not be added again.",
+    "completion_confirmation": "右边改成这个4.7793。现在就完成了标定。",
+    "completed_at_s": 1795428510.7997437,
+    "endpoints": {
+      "left": {
+        "open_rad": 4.869344625009536,
+        "closed_rad": 0.02
+      },
+      "right": {
+        "closed_rad": 0.01,
+        "open_rad": 4.7793
+      }
+    }
+  }
+}

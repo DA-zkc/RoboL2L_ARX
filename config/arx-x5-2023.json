@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "station": "arx-x5-2023",
+  "can_port": "can1",
+  "motion_enabled": false,
+  "motion": {},
+  "cameras": {},
+  "gripper": null
+}

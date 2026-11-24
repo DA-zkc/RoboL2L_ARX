@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "ports": {
+    "left": "can1",
+    "right": "can3"
+  },
+  "status": "nominal_camera_body_model",
+  "physically_verified": false,
+  "limitations": [
+    "Camera COM and inertia use a uniform external box approximation, not certified mass properties.",
+    "Bracket mass/COM/inertia unknown; not included, not assumed to be zero.",
+    "Cable forces and grasped-object payload are not included."
+  ],
+  "base_urdf": {
+    "path": "../robol2l_deploy/models/arx-x5-2023-payload/X5-2023-sdk.urdf",
+    "sha256": "b843943e07562a5abde076b33ea896fd045e8d020da806b0b5a2ea146b504589",
+    "includes_official_gripper": true,
+    "source": "https://github.com/ARXroboticsX/ARX5_beta/blob/main/bimanual/models/X5-2023/urdf/X5-2023.urdf"
+  },
+  "camera": {
+    "model": "Orbbec Gemini 305",
+    "mass_kg": 0.068,
+    "box_dimensions_m": [
+      0.042,
+      0.042,
+      0.023
+    ],
+    "nominal_com_optical_m": [
+      0.009,
+      0,
+      -0.00755
+    ],
+    "mass_source": "manufacturer specification",
+    "inertia_source": "uniform box approximation",
+    "com_source": "Nominal body center: half 18 mm baseline in optical +X; centered vertically; 3.95 mm depth zero offset minus half 23 mm depth in optical Z.",
+    "product_url": "https://www.orbbec.com/gemini-305/",
+    "datasheet_url": "https://orbbec-debian-repos-aws.s3.amazonaws.com/product/Orbbec_Gemini%20305%20Datasheet%20V1.0_20260105.pdf",
+    "datasheet_sha256": "a202253914350914c13fc31d99a967e1f0975671fa65b1ca079b62ef9b39b9a1",
+    "datasheet_pages": [
+      14,
+      28,
+      29,
+      44
+    ]
+  },
+  "sides": {
+    "left": {
+      "camera_serial": "CV2A961001AK",
+      "calibration_session": "635933667e2549cf8b1e7aed0f81bf97",
+      "T_link6_from_camera_optical": [
+        [
+          0.010951519386974334,
+          -0.6249145717759765,
+          0.7806163220207256,
+          0.06855871633233142
+        ],
+        [
+          -0.9998589129591327,
+          0.0030998920820340947,
+          0.016508932287179173,
+          0.008393765841948253
+        ],
+        [
+          -0.012736498706459376,
+          -0.7806869850658003,
+          -0.6247924559000158,
+          0.10392935503121005
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "bracket": {
+        "status": "unknown",
+        "model": null,
+        "mass_kg": null,
+        "note": "Operator believes likely original bracket; not confirmed."
+      },
+      "additional_components": [],
+      "urdf_path": "../robol2l_deploy/models/arx-x5-2023-payload/X5-2023-left-gemini305.urdf",
+      "sha256": "82e9558317c923de27b7f39083ab34ea4c4be859f860316236a9c13834bcf92c"
+    },
+    "right": {
+      "camera_serial": "CV2A961000DJ",
+      "calibration_session": "635933667e2549cf8b1e7aed0f81bf97",
+      "T_link6_from_camera_optical": [
+        [
+          0.010147679509717428,
+          -0.5890538557764472,
+          0.8080300610716583,
+          0.06637424950787418
+        ],
+        [
+          -0.999920730806077,
+          4.5711574298890056e-05,
+          0.012590870291316558,
+          0.008653145431471193
+        ],
+        [
+          -0.007453637018853793,
+          -0.8080937772965159,
+          -0.5890066980857167,
+          0.10553839046717216
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "bracket": {
+        "status": "unknown",
+        "model": null,
+        "mass_kg": null,
+        "note": "Operator believes likely original bracket; not confirmed."
+      },
+      "additional_components": [],
+      "urdf_path": "../robol2l_deploy/models/arx-x5-2023-payload/X5-2023-right-gemini305.urdf",
+      "sha256": "2c1d707c1ef0f3808bb112e9a65b54a2f931e1bdc436d3df02dc7079208d9229"
+    }
+  }
+}

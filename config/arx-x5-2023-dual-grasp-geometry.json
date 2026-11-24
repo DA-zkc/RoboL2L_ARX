@@ -1,0 +1,232 @@
+{
+  "schema": 1,
+  "station": "arx-x5-2023-dual",
+  "ports": {
+    "left": "can1",
+    "right": "can3"
+  },
+  "sides": {
+    "left": {
+      "verified": false,
+      "model_verified": true,
+      "verification": "official_model",
+      "opening_invariant": true,
+      "source": "https://github.com/ARXroboticsX/ARX_Model/tree/a45e8dbb4b1844ae7aef62d16182e5f1724da6d3/X5/X5-2023",
+      "model": {
+        "repository": "ARXroboticsX/ARX_Model",
+        "commit": "a45e8dbb4b1844ae7aef62d16182e5f1724da6d3",
+        "variant": "X5/X5-2023",
+        "sha256": {
+          "X5.urdf": "f65bb597b75f4acf54f08edf9989cca42a4c196fe138d7e975e48b140526ec87",
+          "meshes/link7.STL": "257656e27b47bfc099c502463599680bc94b68b1d58f6c853ea20327d5f7964a",
+          "meshes/link8.STL": "0b9bf8d8ec1b12b684c8e45ac68e8bbfb8ef3c2323bbe90a4defbfe530e0a944"
+        }
+      },
+      "T_link6_from_grasp_tcp": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.149335045004
+        ],
+        [
+          1.0,
+          0.0,
+          0.0,
+          -2e-06
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          -0.000713876255
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "contact_geometry": {
+        "definition": "midpoint_of_area_centroids_of_distal_inward_contact_pads",
+        "pads": [
+          {
+            "link": "link7",
+            "centroid_link6_m": [
+              0.149335045028,
+              -2.193777e-06,
+              -0.000713848243
+            ],
+            "bounds_link6_m": [
+              [
+                0.142570001729,
+                -2.193777e-06,
+                -0.010464259897
+              ],
+              [
+                0.157570002325,
+                -2.193777e-06,
+                0.007863662664
+              ]
+            ],
+            "area_m2": 0.000212459433,
+            "axis_link6": [
+              0,
+              1,
+              0
+            ],
+            "travel_limits_m": [
+              0.0,
+              0.044
+            ]
+          },
+          {
+            "link": "link8",
+            "centroid_link6_m": [
+              0.14933504498,
+              -1.806223e-06,
+              -0.000713904266
+            ],
+            "bounds_link6_m": [
+              [
+                0.142570001729,
+                -1.806223e-06,
+                -0.01046431524
+              ],
+              [
+                0.157570002325,
+                -1.806223e-06,
+                0.007863606389
+              ]
+            ],
+            "area_m2": 0.000212459419,
+            "axis_link6": [
+              0,
+              -1,
+              0
+            ],
+            "travel_limits_m": [
+              0.0,
+              0.044
+            ]
+          }
+        ],
+        "nominal_total_jaw_travel_m": 0.088,
+        "motor_angle_to_width_calibrated": false,
+        "note": "Nominal CAD geometry; verified=false means no physical TCP acceptance. URDF jaw coordinates are metres, not motor radians. 88 mm is summed model travel, not a measured opening at the commissioned encoder endpoints. Contact pads extend beyond the TCP; TCP is not the forwardmost fingertip."
+      }
+    },
+    "right": {
+      "verified": false,
+      "model_verified": true,
+      "verification": "official_model",
+      "opening_invariant": true,
+      "source": "https://github.com/ARXroboticsX/ARX_Model/tree/a45e8dbb4b1844ae7aef62d16182e5f1724da6d3/X5/X5-2023",
+      "model": {
+        "repository": "ARXroboticsX/ARX_Model",
+        "commit": "a45e8dbb4b1844ae7aef62d16182e5f1724da6d3",
+        "variant": "X5/X5-2023",
+        "sha256": {
+          "X5.urdf": "f65bb597b75f4acf54f08edf9989cca42a4c196fe138d7e975e48b140526ec87",
+          "meshes/link7.STL": "257656e27b47bfc099c502463599680bc94b68b1d58f6c853ea20327d5f7964a",
+          "meshes/link8.STL": "0b9bf8d8ec1b12b684c8e45ac68e8bbfb8ef3c2323bbe90a4defbfe530e0a944"
+        }
+      },
+      "T_link6_from_grasp_tcp": [
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.149335045004
+        ],
+        [
+          1.0,
+          0.0,
+          0.0,
+          -2e-06
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          -0.000713876255
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "contact_geometry": {
+        "definition": "midpoint_of_area_centroids_of_distal_inward_contact_pads",
+        "pads": [
+          {
+            "link": "link7",
+            "centroid_link6_m": [
+              0.149335045028,
+              -2.193777e-06,
+              -0.000713848243
+            ],
+            "bounds_link6_m": [
+              [
+                0.142570001729,
+                -2.193777e-06,
+                -0.010464259897
+              ],
+              [
+                0.157570002325,
+                -2.193777e-06,
+                0.007863662664
+              ]
+            ],
+            "area_m2": 0.000212459433,
+            "axis_link6": [
+              0,
+              1,
+              0
+            ],
+            "travel_limits_m": [
+              0.0,
+              0.044
+            ]
+          },
+          {
+            "link": "link8",
+            "centroid_link6_m": [
+              0.14933504498,
+              -1.806223e-06,
+              -0.000713904266
+            ],
+            "bounds_link6_m": [
+              [
+                0.142570001729,
+                -1.806223e-06,
+                -0.01046431524
+              ],
+              [
+                0.157570002325,
+                -1.806223e-06,
+                0.007863606389
+              ]
+            ],
+            "area_m2": 0.000212459419,
+            "axis_link6": [
+              0,
+              -1,
+              0
+            ],
+            "travel_limits_m": [
+              0.0,
+              0.044
+            ]
+          }
+        ],
+        "nominal_total_jaw_travel_m": 0.088,
+        "motor_angle_to_width_calibrated": false,
+        "note": "Nominal CAD geometry; verified=false means no physical TCP acceptance. URDF jaw coordinates are metres, not motor radians. 88 mm is summed model travel, not a measured opening at the commissioned encoder endpoints. Contact pads extend beyond the TCP; TCP is not the forwardmost fingertip."
+      }
+    }
+  }
+}

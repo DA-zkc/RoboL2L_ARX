@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "station": "fr3-single",
+  "robot_ip": "172.16.0.2",
+  "robot_model": "FR3",
+  "gripper_model": "Franka Hand with original fingers",
+  "wrist_serial": "261822078629",
+  "global_serial": "CP4W863000KR",
+  "wrist_calibration": "wrist-calibration.json",
+  "global_calibration": "global-calibration.json",
+  "motion_enabled": false,
+  "motion": {
+    "default_speed_factor": 0.05,
+    "max_speed_factor": 1.0
+  },
+  "planning": {
+    "joint_margin_rad": 0.0,
+    "duration_s": 20,
+    "sample_count": 101,
+    "collision_margin_m": 0.0,
+    "environment_geometry_reviewed": false,
+    "obstacles": []
+  }
+}

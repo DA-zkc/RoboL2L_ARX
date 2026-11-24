@@ -1,0 +1,337 @@
+diff --git a/include/controllers/joint_trajectory.h b/include/controllers/joint_trajectory.h
+index bbddcb6..066bef2 100644
+--- a/include/controllers/joint_trajectory.h
++++ b/include/controllers/joint_trajectory.h
+@@ -19,7 +19,12 @@ class JointTrajectory : public JointPosition {
+                   const Vector7d& stiffness = kDefaultStiffness,
+                   const Vector7d& damping = kDefaultDamping,
+                   const double dq_threshold = kDefaultDqThreshold,
+-                  const double filter_coeff = kDefaultFilterCoeff);
++                  const double filter_coeff = kDefaultFilterCoeff,
++                  const double settle_timeout = kSettleTimeout,
++                  const bool compensate_coriolis = false);
++
++  void start(const franka::RobotState& state, std::shared_ptr<franka::Model> model) override;
++  bool settled() const { return settled_; }
+ 
+   franka::Torques step(const franka::RobotState& robot_state,
+                        franka::Duration& duration) override;
+@@ -29,6 +34,9 @@ class JointTrajectory : public JointPosition {
+  private:
+   std::shared_ptr<motion::JointTrajectory> traj_;
+   double dq_threshold_;
++  double settle_timeout_;
++  bool compensate_coriolis_, settled_ = false;
++  std::shared_ptr<franka::Model> model_;
+ };
+ 
+ }  // namespace controllers
+diff --git a/include/motion/generators.h b/include/motion/generators.h
+index a9b0f23..5ab4034 100644
+--- a/include/motion/generators.h
++++ b/include/motion/generators.h
+@@ -10,6 +10,7 @@
+ 
+ #include "kinematics/ik.h"
+ #include "motion/time_optimal/trajectory.h"
++#include "motion/sampled_joint_curve.h"
+ #include "utils.h"
+ 
+ namespace py = pybind11;
+@@ -48,6 +49,9 @@ class PandaTrajectory {
+ 
+ class JointTrajectory : public PandaTrajectory {
+  public:
++  JointTrajectory(const std::vector<station::Polynomial>& coefficients, double dt)
++      : sampled_(std::make_shared<station::SampledJointCurve>(coefficients, dt)) {}
++  double getDuration() { return sampled_ ? sampled_->duration : PandaTrajectory::getDuration(); }
+   JointTrajectory(const std::vector<Vector7d>& waypoints,
+                   double speed_factor = kDefaultJointSpeedFactor,
+                   double maxDeviation = 0.0, double timeout = kDefaultTimeout);
+@@ -59,6 +63,7 @@ class JointTrajectory : public PandaTrajectory {
+   Vector7d getJointAccelerations(double time);
+ 
+  private:
++  std::shared_ptr<station::SampledJointCurve> sampled_;
+   time_optimal::Path _convertList(const std::vector<Vector7d>& list,
+                                   double maxDeviation = 0.0);
+ };
+diff --git a/include/panda.h b/include/panda.h
+index 42331f2..69fbcde 100644
+--- a/include/panda.h
++++ b/include/panda.h
+@@ -172,12 +172,18 @@ class Panda {
+   void setDefaultBehavior();
+   void raiseError();
+   void recover();
++  void setAutomaticRecovery(bool enabled) { automatic_recovery_ = enabled; }
++  bool executeJointTrajectory(std::shared_ptr<motion::JointTrajectory> trajectory,
++      double success_threshold = 0.003, double settle_timeout = 1.0, bool compensate_coriolis = false);
++  std::map<std::string, double> getTrajectoryReport() { return trajectory_report_; }
+   void teaching_mode(bool active,
+                      const Vector7d& damping = kDefaultTeachingDamping);
+ 
+   const std::string name_;
+ 
+  private:
++  bool automatic_recovery_ = true;
++  std::map<std::string, double> trajectory_report_;
+   void _warnIfRealtimeUnavailable();
+   void _startController(std::shared_ptr<TorqueController> controller);
+   void _runController(TorqueCallback& control);
+diff --git a/src/_core.cpp b/src/_core.cpp
+index e9d1404..d32e1a8 100644
+--- a/src/_core.cpp
++++ b/src/_core.cpp
+@@ -98,7 +98,12 @@ PYBIND11_MODULE(_core, m) {
+      other half of what realtime control needs.
+   )delim");
+ 
+-  py::class_<motion::JointTrajectory>(m, "JointTrajectory")
++  // The registered execution bridge and its controller retain this exact
++  // trajectory through shared_ptr; Python must use the same holder type.
++  py::class_<motion::JointTrajectory, std::shared_ptr<motion::JointTrajectory>>(m, "JointTrajectory")
++      .def_static("from_coefficients", [](const std::vector<station::Polynomial>& c, double dt) {
++        return std::make_shared<motion::JointTrajectory>(c, dt);
++      })
+       // Released like the move_to_* methods release it, which construct these
+       // internally. This also keeps the Python-side tests on that same path.
+       .def(py::init<const std::vector<Vector7d> &, double, double, double>(),
+@@ -209,6 +214,11 @@ PYBIND11_MODULE(_core, m) {
+       .def("start_controller", &Panda::startController,
+            py::call_guard<py::gil_scoped_release>(), py::arg("controller"))
+       .def("stop_controller", &Panda::stopController)
++      .def("set_automatic_recovery", &Panda::setAutomaticRecovery)
++      .def("execute_joint_trajectory", &Panda::executeJointTrajectory, py::call_guard<py::gil_scoped_release>(),
++           py::arg("trajectory"), py::arg("success_threshold") = 0.003,
++           py::arg("settle_timeout") = 1.0, py::arg("compensate_coriolis") = false)
++      .def("get_trajectory_report", &Panda::getTrajectoryReport)
+       .def("move_to_joint_position",
+            py::overload_cast<std::vector<Vector7d> &, double, const Vector7d &,
+                              const Vector7d &, double, double>(
+diff --git a/src/controllers/joint_trajectory.cpp b/src/controllers/joint_trajectory.cpp
+index d0a3c02..f8b090f 100644
+--- a/src/controllers/joint_trajectory.cpp
++++ b/src/controllers/joint_trajectory.cpp
+@@ -1,4 +1,5 @@
+ #include "controllers/joint_trajectory.h"
++#include <franka/model.h>
+ 
+ using namespace controllers;
+ 
+@@ -9,10 +10,22 @@ const double JointTrajectory::kSettleTimeout = 1.0;
+ JointTrajectory::JointTrajectory(
+     std::shared_ptr<motion::JointTrajectory> trajectory,
+     const Vector7d& stiffness, const Vector7d& damping,
+-    const double dq_threshold, const double filter_coeff)
++    const double dq_threshold, const double filter_coeff,
++    const double settle_timeout, const bool compensate_coriolis)
+     : JointPosition(stiffness, damping, filter_coeff),
+       traj_(trajectory),
+-      dq_threshold_(dq_threshold) {}
++      dq_threshold_(dq_threshold), settle_timeout_(settle_timeout),
++      compensate_coriolis_(compensate_coriolis) {
++  if (!std::isfinite(settle_timeout_) || settle_timeout_ < 0)
++    throw std::invalid_argument("Settle timeout must be finite and nonnegative");
++}
++
++void JointTrajectory::start(const franka::RobotState& state, std::shared_ptr<franka::Model> model) {
++  if (compensate_coriolis_ && !model) throw std::invalid_argument("Coriolis compensation needs a robot model");
++  model_ = model;
++  settled_ = false;
++  JointPosition::start(state, model);
++}
+ 
+ franka::Torques JointTrajectory::step(const franka::RobotState& robot_state,
+                                       franka::Duration& duration) {
+@@ -20,23 +33,14 @@ franka::Torques JointTrajectory::step(const franka::RobotState& robot_state,
+   auto dq_d = traj_->getJointVelocities(getTime());
+   setControl(q_d, dq_d);
+   auto torques = JointPosition::step(robot_state, duration);
+-  const double overrun = getTime() - traj_->getDuration();
+-  if (overrun > 0.0) {
+-    bool at_rest = true;
+-    for (auto dq : robot_state.dq) {
+-      if (std::abs(dq) > dq_threshold_) {
+-        at_rest = false;
+-      }
+-    }
+-    // Being at rest is not enough on its own: without an integral term the
+-    // controller comes to rest wherever the stiffness balances the residual
+-    // error, which can be well short of the goal.
+-    const Vector7d q = Eigen::Map<const Vector7d>(robot_state.q.data());
+-    const Vector7d q_goal = traj_->getJointPositions(traj_->getDuration());
+-    const bool at_goal = (q_goal - q).cwiseAbs().maxCoeff() <= kSettleTolerance;
+-    if ((at_rest && at_goal) || overrun >= kSettleTimeout) {
+-      torques.motion_finished = true;
+-    }
++  // Match libfranka's joint impedance example. Gravity/friction are already
++  // compensated on the robot; do not add gravity a second time.
++  if (compensate_coriolis_) {
++    const auto coriolis = model_->coriolis(robot_state);
++    for (size_t i = 0; i < 7; ++i) torques.tau_J[i] += coriolis[i];
++  }
++  if (getTime() >= traj_->getDuration()) {
++    torques.motion_finished = true;
+   }
+   return torques;
+ }
+diff --git a/src/libfranka.cpp b/src/libfranka.cpp
+index 7987687..077330f 100644
+--- a/src/libfranka.cpp
++++ b/src/libfranka.cpp
+@@ -18,7 +18,7 @@
+ // franka::RobotModel was introduced in libfranka 0.14.0. Its public header was
+ // removed again in 0.20.5, which hid the Pinocchio dependency from the
+ // interface, so the binding only exists for the versions in between.
+-#if LIBFRANKA_VER >= 0x000e00 && LIBFRANKA_VER < 0x001405
++#if LIBFRANKA_VER >= 0x000e00 && LIBFRANKA_VER < 0x001405 && __has_include(<pinocchio/multibody/data.hpp>)
+ #define PANDA_PY_HAS_ROBOT_MODEL 1
+ #else
+ #define PANDA_PY_HAS_ROBOT_MODEL 0
+diff --git a/src/motion/generators.cpp b/src/motion/generators.cpp
+index 63e2c7f..209850d 100644
+--- a/src/motion/generators.cpp
++++ b/src/motion/generators.cpp
+@@ -117,14 +117,17 @@ time_optimal::Path JointTrajectory::_convertList(
+ }
+ 
+ Vector7d JointTrajectory::getJointPositions(double time) {
++  if (sampled_) { auto q=std::get<0>(sampled_->sample(time)); return Eigen::Map<Vector7d>(q.data()); }
+   return traj_->getPosition(time);
+ }
+ 
+ Vector7d JointTrajectory::getJointVelocities(double time) {
++  if (sampled_) { auto v=std::get<1>(sampled_->sample(time)); return Eigen::Map<Vector7d>(v.data()); }
+   return traj_->getVelocity(time);
+ }
+ 
+ Vector7d JointTrajectory::getJointAccelerations(double time) {
++  if (sampled_) { auto a=std::get<2>(sampled_->sample(time)); return Eigen::Map<Vector7d>(a.data()); }
+   return traj_->getAcceleration(time);
+ }
+ 
+diff --git a/src/panda.cpp b/src/panda.cpp
+index 32794c1..59e109a 100644
+--- a/src/panda.cpp
++++ b/src/panda.cpp
+@@ -192,7 +192,7 @@ void Panda::disableLogging() {
+ std::map<std::string, std::list<Eigen::VectorXd>> Panda::getLog() {
+   std::map<std::string, std::list<Eigen::VectorXd>> log;
+   std::list<Eigen::VectorXd> O_T_EE, elbow, tau_J, control_command_success_rate,
+-      O_F_ext_hat_K, K_F_ext_hat_K, q, dq, tau_ext_hat_filtered, time;
++      O_F_ext_hat_K, K_F_ext_hat_K, q, dq, tau_ext_hat_filtered, time, tau_J_d, robot_mode;
+   std::lock_guard<std::mutex> lock(log_mux_);
+   for (auto l : log_) {
+     O_T_EE.push_back(Eigen::Map<Eigen::VectorXd>(l.O_T_EE.data(), 16, 1));
+@@ -206,6 +206,8 @@ std::map<std::string, std::list<Eigen::VectorXd>> Panda::getLog() {
+         Eigen::Map<Eigen::VectorXd>(l.K_F_ext_hat_K.data(), 6, 1));
+     q.push_back(Eigen::Map<Eigen::VectorXd>(l.q.data(), 7, 1));
+     dq.push_back(Eigen::Map<Eigen::VectorXd>(l.dq.data(), 7, 1));
++    tau_J_d.push_back(Eigen::Map<Eigen::VectorXd>(l.tau_J_d.data(), 7, 1));
++    robot_mode.push_back(Eigen::Matrix<double, 1, 1>::Constant(static_cast<int>(l.robot_mode)));
+     tau_ext_hat_filtered.push_back(
+         Eigen::Map<Eigen::VectorXd>(l.tau_ext_hat_filtered.data(), 7, 1));
+     time.push_back(Eigen::Matrix<double, 1, 1>::Constant(l.time.toMSec()));
+@@ -218,6 +220,8 @@ std::map<std::string, std::list<Eigen::VectorXd>> Panda::getLog() {
+   log.emplace("K_F_ext_hat_K", K_F_ext_hat_K);
+   log.emplace("q", q);
+   log.emplace("dq", dq);
++  log.emplace("tau_J_d", tau_J_d);
++  log.emplace("robot_mode", robot_mode);
+   log.emplace("tau_ext_hat_filtered", tau_ext_hat_filtered);
+   log.emplace("time", time);
+ 
+@@ -378,6 +382,7 @@ void Panda::recover() {
+   auto state = robot_->readOnce();
+   if (state.current_errors || state.robot_mode == franka::RobotMode::kReflex ||
+       state.robot_mode == franka::RobotMode::kOther) {
++    if (!automatic_recovery_) throw std::runtime_error("Explicit operator recovery required");
+     _log("warning",
+          "Irregular state detected. Attempting automatic error recovery.");
+     robot_->automaticErrorRecovery();
+@@ -593,3 +598,37 @@ void Panda::setDefaultBehavior() {
+   robot_->setJointImpedance({{3000, 3000, 3000, 2500, 2500, 2000, 2000}});
+   robot_->setCartesianImpedance({{3000, 3000, 3000, 300, 300, 300}});
+ }
++
++// Deployment bridge: execute the exact library trajectory inspected offline.
++// This exposes existing panda-py control; it does not implement a new controller.
++bool Panda::executeJointTrajectory(std::shared_ptr<motion::JointTrajectory> traj,
++                                  double success_threshold, double settle_timeout,
++                                  bool compensate_coriolis) {
++  trajectory_report_.clear();
++  if (!traj || traj->getDuration() <= 0.0) throw std::runtime_error("Invalid trajectory");
++  stopController();
++  auto state = robot_->readOnce();
++  if (state.current_errors || state.robot_mode != franka::RobotMode::kIdle)
++    throw std::runtime_error("Robot must be idle and error-free");
++  if (automatic_recovery_) throw std::runtime_error("Disable automatic recovery before deployment execution");
++  auto ctrl = std::make_shared<controllers::JointTrajectory>(traj,
++      controllers::JointTrajectory::kDefaultStiffness,
++      controllers::JointTrajectory::kDefaultDamping,
++      controllers::JointTrajectory::kDefaultDqThreshold,
++      controllers::JointTrajectory::kDefaultFilterCoeff, settle_timeout, compensate_coriolis);
++  _startController(ctrl);
++  auto callback = _createTorqueCallback();
++  _runController(callback);
++  // The synchronous bridge must retire its controller too, otherwise
++  // isMoving()/getState() keep returning the final cached control-loop sample.
++  current_controller_->stop(getState(), model_);
++  raiseError();
++  auto end = robot_->readOnce();
++  _setState(end);
++  const double error = (Eigen::Map<const Vector7d>(end.q.data()) - traj->getJointPositions(traj->getDuration())).cwiseAbs().maxCoeff();
++  trajectory_report_ = {{"curve_duration_s", traj->getDuration()}, {"control_duration_s", ctrl->getTime()},
++      {"settled", ctrl->settled() ? 1.0 : 0.0}, {"settle_timeout_s", settle_timeout},
++      {"max_joint_error_rad", error}, {"acceptance_rad", success_threshold},
++      {"coriolis_compensation", compensate_coriolis ? 1.0 : 0.0}};
++  return true;  // Normal device completion; error remains measured feedback.
++}
+diff --git a/include/motion/sampled_joint_curve.h b/include/motion/sampled_joint_curve.h
+new file mode 100644
+--- /dev/null
++++ b/include/motion/sampled_joint_curve.h
+@@ -0,0 +1,42 @@
++#pragma once
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <stdexcept>
++#include <tuple>
++#include <vector>
++
++// A timestamped reference, not a controller. Coefficients come from a clamped
++// cubic spline over the public trajectory samples. Both installed controllers
++// evaluate this same curve in their existing realtime loop.
++namespace station {
++using Sample = std::array<double, 7>;
++using Polynomial = std::array<Sample, 4>;
++class SampledJointCurve {
++ public:
++  std::vector<Polynomial> coefficients;
++  double dt, duration;
++  SampledJointCurve(const std::vector<Polynomial>& values, double interval)
++      : coefficients(values), dt(interval), duration(values.size()*interval) {
++    if (values.empty() || !std::isfinite(dt) || dt <= 0 || !std::isfinite(duration))
++      throw std::invalid_argument("invalid_sampled_trajectory");
++    for (const auto& row : values) for (const auto& coefficient : row)
++      for (double value : coefficient)
++        if (!std::isfinite(value)) throw std::invalid_argument("nonfinite_trajectory_coefficient");
++  }
++  std::tuple<Sample, Sample, Sample> sample(double time) const {
++    if (!std::isfinite(time)) throw std::invalid_argument("invalid_sample_time");
++    const double t = std::max(0., std::min(duration, time));
++    const size_t i = std::min(coefficients.size()-1, static_cast<size_t>(t/dt));
++    const double local = t-i*dt;
++    const auto& c = coefficients[i];
++    Sample q{}, v{}, a{};
++    for (size_t j=0; j<7; ++j) {
++      q[j]=((c[0][j]*local+c[1][j])*local+c[2][j])*local+c[3][j];
++      v[j]=(3*c[0][j]*local+2*c[1][j])*local+c[2][j];
++      a[j]=6*c[0][j]*local+2*c[1][j];
++    }
++    return {q,v,a};
++  }
++};
++}

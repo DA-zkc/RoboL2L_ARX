@@ -1,0 +1,10 @@
+{
+  "wrist-calibration.json": {
+    "sha256": "a664c46b8a06ef89593516150a6519e1152c3234359b108adaf0df212e86b58f",
+    "imported_from": "/home/solution/RoboL2L/projects/fr3_capx/config/handeye.json"
+  },
+  "global-calibration.json": {
+    "sha256": "6d68344a2c142fc67e6e84eaaabc5f4038adc0f5c627ef37e42590d2859bd001",
+    "imported_from": "/home/solution/RoboL2L/projects/fr3_capx/config/global_camera.json"
+  }
+}

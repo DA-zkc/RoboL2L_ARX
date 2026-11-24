@@ -1,0 +1,34 @@
+{
+  "enabled": true,
+  "sam3_url": "http://127.0.0.1:8114",
+  "sam3_text_confidence_threshold": 0.5,
+  "graspnet_url": "http://127.0.0.1:8115",
+  "grasp_to_tcp": [
+    [
+      0,
+      -1,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1,
+      0.1034
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "maximum_width_m": null,
+  "transform_source": "Contact-GraspNet build_6d_grasp uses X jaw axis and a 0.1034m palm-to-contact baseline; FR3 Hand TCP uses Y jaw axis and 0.1034m hand-to-TCP (official URDF). This is a model-derived transform, not physical commissioning."
+}

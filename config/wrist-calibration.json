@@ -1,0 +1,99 @@
+{
+  "session_id": "wrist-panel-20261115T094019.274428Z",
+  "date": "2026-11-15",
+  "status": "validated",
+  "validation_basis": "three_fresh_independent_poses_passed_engineering_consistency_thresholds_not_absolute_accuracy_certified",
+  "camera_serial": "261822078629",
+  "parent_frame": "EE",
+  "camera_frame": "color_optical",
+  "units": "meters",
+  "T_EE_camera": [
+    [
+      -0.05371447099789051,
+      0.9985375670510517,
+      0.006122319265043688,
+      -0.04911490398930253
+    ],
+    [
+      -0.9985453608998534,
+      -0.05374161652677212,
+      0.004358999709920277,
+      0.0341673713212424
+    ],
+    [
+      0.00468164829931648,
+      -0.005879272136558848,
+      0.9999717577653611,
+      -0.040814165493652174
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "F_T_EE": [
+    [
+      0.7071067690849304,
+      0.7071067690849304,
+      0,
+      0
+    ],
+    [
+      -0.7071067690849304,
+      0.7071067690849304,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1,
+      0.10339999943971634
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "intrinsics": {
+    "width": 640,
+    "height": 480,
+    "fx": 605.3040771484375,
+    "fy": 604.0591430664062,
+    "ppx": 324.4950866699219,
+    "ppy": 255.86209106445312,
+    "coeffs": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "model": "none",
+    "distortion_model_enum": 0
+  },
+  "board_config": {
+    "type": "charuco",
+    "squares_x": 14,
+    "squares_y": 9,
+    "square_length_m": 0.02,
+    "marker_length_m": 0.015,
+    "dictionary": "DICT_5X5_100",
+    "legacy_pattern": false,
+    "measurement_source": "Square 20 mm and model CC300-20-15 confirmed by user 2026-11-13; nominal marker 15 mm inferred from model suffix, supersedes prior 14.9 mm manual measurement",
+    "dictionary_note": "Observed IDs 0-62 match this dictionary; larger nested dictionaries may also match. Standard board ordering verified by image homography.",
+    "model": "CC300-20-15",
+    "marker_size_source": "Model-code inference; manufacturer dimensional drawing not available"
+  },
+  "candidate_sha256": "a8a6784ded609201ba4a9dba56a9aacc3a955619d703477f8cc2ba4b8cc03ba8",
+  "fit_count": 12,
+  "fit_rms_px": 0.6396070868634496,
+  "heldout_count": 3,
+  "source_archive_sha256": "eb5bbef684ccf950481e2359ae2fa802086b59e52f92069596e17f47ce689504",
+  "deployed_at_utc": "20261115T094626.354505Z",
+  "note": "T_EE_camera maps color optical coordinates to configured EE; translations in metres. T_base_board is session-specific and is retained only in candidate.json."
+}

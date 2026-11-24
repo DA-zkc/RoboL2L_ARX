@@ -1,0 +1,7 @@
+{
+  "name": "抓取放置 / Pick and place",
+  "goal": "将桌面目标物体放入指定容器。",
+  "success_criteria": "目标位于容器内，夹爪已释放，物体稳定放置。",
+  "mode": "demo",
+  "guidance": []
+}

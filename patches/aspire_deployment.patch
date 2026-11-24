@@ -1,0 +1,1310 @@
+--- a/cap_harness/api.py
++++ b/cap_harness/api.py
+@@ -228,16 +228,25 @@
+         self,
+         camera_name: str,
+         text: str,
++        *,
++        model_query: str | None = None,
+     ) -> SegmentationSet:
+-        return self._segment_text(camera_name, text, self.get_observation(camera_name))
++        """Use a short visual description; model_query preserves the original text."""
++        return self._segment_text(camera_name, text, self.get_observation(camera_name), model_query=model_query)
+ 
+     def _segment_text(
+-        self, camera_name: str, text: str, observation: Observation
++        self, camera_name: str, text: str, observation: Observation, *, model_query: str | None = None
+     ) -> SegmentationSet:
+         if self._segmentation_provider is None:
+             return self._segmentation_failure("no segmentation provider is configured")
++        if camera_name not in observation.cameras:
++            return SegmentationSet(ok=False, error=ApiError(code=ErrorCode.INVALID_REQUEST,
++                message=f"unknown camera {camera_name!r}"))
+         camera = observation.cameras[camera_name]
+-        result = self._segmentation_provider.segment_text(camera, text)
++        if model_query is None:
++            result = self._segmentation_provider.segment_text(camera, text)
++        else:
++            result = self._segmentation_provider.segment_text(camera, text, model_query=model_query)
+         return self._with_camera_name(result, camera_name)
+ 
+     def segment_points(
+@@ -258,13 +267,24 @@
+         mask: Segmentation | np.ndarray,
+         camera_name: str,
+         target_frame: str = "robot_base",
++        *,
++        depth_range_m: Sequence[float] | None = None,
++        seed_px: Sequence[int] | None = None,
++        max_depth_jump_m: float | None = None,
+     ) -> PointCloud:
++        """Project a mask with measured depth diagnostics and optional explicit filters.
++
++        depth_range_m bounds camera Z in meters. seed_px=[x,y] together with
++        max_depth_jump_m selects that seed's 4-connected depth component.
++        Defaults keep all finite positive masked depths; no object is inferred.
++        """
+         observation = self.get_observation(camera_name)
+         return self._project_mask(
+             mask,
+             camera_name=camera_name,
+             target_frame=target_frame,
+             observation=observation,
++            depth_range_m=depth_range_m, seed_px=seed_px, max_depth_jump_m=max_depth_jump_m,
+         )
+ 
+     def _project_mask(
+@@ -274,6 +294,9 @@
+         camera_name: str,
+         target_frame: str,
+         observation: Observation,
++        depth_range_m: Sequence[float] | None = None,
++        seed_px: Sequence[int] | None = None,
++        max_depth_jump_m: float | None = None,
+     ) -> PointCloud:
+         camera = observation.cameras[camera_name]
+         if isinstance(mask, Segmentation):
+@@ -290,7 +313,15 @@
+             raise ValueError(
+                 f"segmentation camera {segmentation.camera_name!r} does not match {camera_name!r}"
+             )
+-        return project_mask_to_point_cloud(camera, segmentation, target_frame=target_frame)
++        preprocess=getattr(self._adapter,"prepare_projection",None)
++        if callable(preprocess):segmentation=preprocess(segmentation,observation)
++        if (self._embodiment == "arx_x5_2023_dual" and target_frame == "robot_base"
++                and observation.robot_state.base_frame == "left_base"):
++            target_frame = observation.robot_state.base_frame
++        return project_mask_to_point_cloud(
++            camera, segmentation, target_frame=target_frame, depth_range_m=depth_range_m,
++            seed_px=seed_px, max_depth_jump_m=max_depth_jump_m,
++        )
+ 
+     def estimate_geometry(self, point_cloud: PointCloud) -> ObjectGeometry:
+         return estimate_object_geometry(point_cloud)
+@@ -521,6 +552,11 @@
+                 ErrorCode.INVALID_REQUEST,
+                 "target_point_cloud must be a PointCloud or None",
+             )
++        if strategy.require_collision_check:
++            missing = getattr(self._adapter, "collision_missing", ("collision_checker",))
++            if missing or strategy.pose_planner != "station" or strategy.trajectory_planner != "interpolation":
++                return PlanResult(False, error=ApiError(ErrorCode.UNSUPPORTED,
++                    "requested_collision_check_unavailable", details={"missing": list(missing)}))
+         state = self.get_robot_state()
+         if target_point_cloud is not None and target_point_cloud.frame != state.base_frame:
+             return self._plan_failure(
+@@ -582,9 +618,10 @@
+                     scene=self._planning_scene_request(
+                         arm,
+                         target_point_cloud=target_point_cloud,
+-                    ),
++                    ) if getattr(provider, "requires_observed_scene", True) else None,
+                     context=self._planning_context(planning_state),
+                     **timing_options,
++                    **({"start_joints": start_joints} if getattr(provider, "accepts_start_joints", False) else {}),
+                 )
+                 validated = self._validate_plan_start(result, planning_state)
+                 return self._bind_plan_start(validated, state)
+@@ -624,7 +661,7 @@
+                 )
+         assert joint_goal is not None
+ 
+-        if strategy.trajectory_planner != "interpolation":
++        if strategy.trajectory_planner != "interpolation" or strategy.trajectory_planner in self._trajectory_planning_providers:
+             provider = self._trajectory_planning_providers.get(strategy.trajectory_planner)
+             if provider is None:
+                 return self._plan_failure(
+@@ -637,9 +674,10 @@
+                     joint_goal,
+                     arm=arm,
+                     gripper_position=self._commanded_gripper_position(state, arm),
+-                    scene=self._planning_scene(target_point_cloud=target_point_cloud),
++                    scene=self._planning_scene(target_point_cloud=target_point_cloud) if getattr(provider, "requires_observed_scene", True) else None,
+                     context=self._planning_context(state),
+                     **timing_options,
++                    **({"start_joints": start_joints} if getattr(provider, "accepts_start_joints", False) else {}),
+                 )
+                 return self._validate_plan_start(result, planning_state)
+             # Best-effort arm resolution must not mask the embodiment error.
+@@ -698,6 +736,11 @@
+                     message="strategy must be a MotionStrategy",
+                 ),
+             )
++        if strategy.require_collision_check:
++            missing = getattr(self._adapter, "collision_missing", ("collision_checker",))
++            if missing or strategy.pose_planner != "station" or strategy.trajectory_planner != "interpolation":
++                return SynchronizedPlanResult(False, error=ApiError(ErrorCode.UNSUPPORTED,
++                    "requested_collision_check_unavailable", details={"missing": list(missing)}))
+         state = self.get_robot_state()
+         normalized_targets, error = self._normalize_synchronized_targets(targets, state)
+         if error is not None:
+@@ -729,7 +772,7 @@
+                 state,
+                 normalized_targets,
+                 gripper_positions=grippers,
+-                scene=self._planning_scene(),
++                scene=self._planning_scene() if getattr(provider, "requires_observed_scene", True) else None,
+                 context=self._planning_context(state),
+                 **timing_options,
+             )
+@@ -768,6 +811,11 @@
+         )
+         if not plan.ok or plan.trajectory is None:
+             return ExecutionResult(ok=False, steps_executed=0, error=plan.error)
++        if getattr(self._adapter, "manages_trajectory_dispatch", False):
++            if self._embodiment == "arx_x5_2023_dual":
++                return self._stage("execute_trajectory", self._adapter.execute_planned_move,
++                                   plan.trajectory, normalized_targets, tolerance, max_steps)
++            return self._stage("execute_trajectory", self.execute_trajectory, plan.trajectory)
+         if plan.trajectory.waypoint_count > max_steps:
+             return ExecutionResult(
+                 ok=False,
+@@ -917,9 +965,12 @@
+                     ),
+                 ),
+             )
+-        stale = self._stale_trajectory_result(trajectory)
+-        if stale is not None:
+-            return stale
++        # A station-owned Runtime dispatches native curves and records the
++        # measured start itself. Do not add a second numeric start/gripper gate.
++        if not getattr(self._adapter, "manages_trajectory_dispatch", False):
++            stale = self._stale_trajectory_result(trajectory)
++            if stale is not None:
++                return stale
+         try:
+             result = self._adapter.execute_trajectory(trajectory)
+         except (TypeError, ValueError) as exc:
+@@ -1150,13 +1201,40 @@
+         *,
+         camera_name: str | None = None,
+         target_frame: str | None = None,
++        model_query: str | None = None,
++        segmentation: Segmentation | None = None,
++        depth_range_m: Sequence[float] | None = None,
++        seed_px: Sequence[int] | None = None,
++        max_depth_jump_m: float | None = None,
+     ) -> LocalizationResult:
++        """Project a trusted text candidate or an explicitly caller-selected mask.
++
++        Supplying segmentation reuses it without any text inference. Use the
++        same frozen RGB-D snapshot on which the caller confirmed that mask.
++        Success means selected-mask geometry, not independent class verification.
++        """
+         observation = self.get_observation()
+-        name = camera_name or self.default_camera
+-        segmentation_set = self._stage("segment_text", self._segment_text, name, query, observation)
+-        if not segmentation_set.ok:
+-            return LocalizationResult(ok=False, error=segmentation_set.error)
+-        segmentation = segmentation_set.segmentations[0]
++        name = camera_name or (segmentation.camera_name if isinstance(segmentation, Segmentation) else self.default_camera)
++        if segmentation is not None and (not isinstance(segmentation, Segmentation) or model_query is not None):
++            return LocalizationResult(ok=False, error=ApiError(code=ErrorCode.INVALID_REQUEST,
++                message="segmentation must be a Segmentation; do not combine it with model_query"))
++        if segmentation is None:
++            segmentation_set = self._stage("segment_text", self._segment_text, name, query, observation,
++                                           model_query=model_query)
++            if not segmentation_set.ok:
++                return LocalizationResult(ok=False, error=segmentation_set.error,
++                                          diagnostics=segmentation_set.diagnostics)
++            diagnostics = dict(segmentation_set.diagnostics, selection_source="text_candidate")
++            segmentation = max(segmentation_set.segmentations, key=lambda candidate: candidate.score)
++        else:
++            diagnostics = {"original_query": query, "model_query": None,
++                           "selection_source": "caller_selected_mask", "text_inference_performed": False,
++                           "observation_id": segmentation.observation_id,
++                           "selected_score": segmentation.score}
++        diagnostics.update(class_identity_verified=False, success_semantics="selected_mask_geometry")
++        if name not in observation.cameras:
++            return LocalizationResult(ok=False, error=ApiError(code=ErrorCode.INVALID_REQUEST,
++                message=f"unknown camera {name!r}"), diagnostics=diagnostics)
+         if target_frame is None:
+             target_frame = observation.robot_state.base_frame
+         try:
+@@ -1167,9 +1245,13 @@
+                 camera_name=name,
+                 target_frame=target_frame,
+                 observation=observation,
+-            )
++                depth_range_m=depth_range_m, seed_px=seed_px, max_depth_jump_m=max_depth_jump_m,
++            )
++            diagnostics["projection"] = point_cloud.diagnostics["projection"]
+             geometry = self._stage("estimate_geometry", self.estimate_geometry, point_cloud)
+         except ValueError as exc:
++            if hasattr(exc, "diagnostics"):
++                diagnostics["projection"] = exc.diagnostics
+             return LocalizationResult(
+                 ok=False,
+                 segmentation=segmentation,
+@@ -1177,12 +1259,14 @@
+                     code=ErrorCode.POINT_CLOUD_FAILED,
+                     message=f"object localization geometry failed: {exc}",
+                 ),
++                diagnostics=diagnostics,
+             )
+         return LocalizationResult(
+             ok=True,
+             geometry=geometry,
+             segmentation=segmentation,
+             point_cloud=point_cloud,
++            diagnostics=diagnostics,
+         )
+ 
+     def select_grasp(
+@@ -1239,6 +1323,14 @@
+                     message=f"joint target must be a finite {joint_dimension}-joint vector",
+                 ),
+             )
++        if getattr(self._adapter, "manages_trajectory_dispatch", False):
++            plan = self._stage("plan_motion", self.plan_motion, goal, arm=arm)
++            if not plan.ok:
++                return ExecutionResult(False, 0, error=plan.error)
++            if self._embodiment == "arx_x5_2023_dual":
++                return self._stage("execute_trajectory", self._adapter.execute_planned_move,
++                                   plan.trajectory, {arm: goal}, tolerance, max_steps)
++            return self._stage("execute_trajectory", self.execute_trajectory, plan.trajectory)
+         for step_index in range(max_steps):
+             state = self.get_robot_state()
+             gripper_target = self._commanded_gripper_position(state, arm)
+@@ -1336,6 +1428,11 @@
+         )
+         if not plan.ok or plan.trajectory is None:
+             return ExecutionResult(ok=False, steps_executed=0, error=plan.error)
++        if getattr(self._adapter, "manages_trajectory_dispatch", False):
++            if self._embodiment == "arx_x5_2023_dual":
++                return self._stage("execute_trajectory", self._adapter.execute_planned_move,
++                                   plan.trajectory, {arm: target_pose}, tolerance, max_steps)
++            return self._stage("execute_trajectory", self.execute_trajectory, plan.trajectory)
+         if len(plan.trajectory.joint_positions) > max_steps:
+             return ExecutionResult(
+                 ok=False,
+@@ -1946,13 +2043,16 @@
+         for arm in state.arms:
+             target = targets[arm]
+             if isinstance(target, Pose):
+-                if target.frame != state.base_frame:
++                frame = state.end_effector_poses[arm].frame if state.base_frame == "arm_local" else state.base_frame
++                local_arx = (state.embodiment == "arx_x5_2023_dual" and frame == "left_base"
++                             and target.frame == f"{arm}_base")
++                if target.frame != frame and not local_arx:
+                     return None, ApiError(
+                         code=ErrorCode.INVALID_REQUEST,
+                         message=f"target pose for {arm!r} is not in the robot base frame",
+                         details={
+                             "target_frame": target.frame,
+-                            "base_frame": state.base_frame,
++                            "base_frame": frame,
+                         },
+                     )
+                 normalized[arm] = target
+@@ -2010,6 +2110,7 @@
+                     camera_name=camera_name,
+                     frame=item.frame,
+                     box_xyxy=item.box_xyxy,
++                    observation_id=item.observation_id,
+                 )
+                 for item in result.segmentations
+             ),
+--- a/cap_harness/contracts.py
++++ b/cap_harness/contracts.py
+@@ -18,6 +18,9 @@
+         "libero": 7,
+         "robosuite": 7,
+         "yam_real": 6,
++        "franka_fr3": 7,
++        "arx_x5_2023": 6,
++        "arx_x5_2023_dual": 6,
+     }
+ )
+ SUPPORTED_JOINT_DIMENSIONS = frozenset(JOINT_DIMENSIONS.values())
+@@ -372,7 +375,8 @@
+ 
+         base_frame = _non_empty_string(self.base_frame, "base_frame")
+         for arm, pose in poses.items():
+-            if pose.frame != base_frame:
++            expected_frame = f"{arm}_base" if embodiment == "arx_x5_2023_dual" and base_frame == "arm_local" else base_frame
++            if pose.frame != expected_frame:
+                 raise ValueError(
+                     f"end_effector_poses[{arm!r}] is in frame {pose.frame!r}, "
+                     f"expected {base_frame!r}"
+@@ -456,7 +460,7 @@
+     timestamp_s: float | None = None
+ 
+     def __post_init__(self) -> None:
+-        raw_cameras = _mapping(self.cameras, "cameras", allow_empty=False)
++        raw_cameras = _mapping(self.cameras, "cameras", allow_empty=getattr(self.robot_state, "embodiment", None) == "arx_x5_2023_dual")
+         cameras: dict[str, CameraObservation] = {}
+         for name, camera in raw_cameras.items():
+             if not isinstance(camera, CameraObservation):
+@@ -681,6 +685,7 @@
+     camera_name: str
+     frame: str
+     box_xyxy: np.ndarray | None = None
++    observation_id: str | None = None
+ 
+     def __post_init__(self) -> None:
+         try:
+@@ -869,6 +874,7 @@
+     points: np.ndarray
+     frame: str
+     colors: np.ndarray | None = None
++    diagnostics: Mapping[str, object] = field(default_factory=dict)
+ 
+     def __post_init__(self) -> None:
+         points = _array(self.points, "points", shape=(None, 3))
+@@ -876,6 +882,7 @@
+             raise ValueError("points must contain at least one point")
+         object.__setattr__(self, "points", points)
+         object.__setattr__(self, "frame", _non_empty_string(self.frame, "frame"))
++        object.__setattr__(self, "diagnostics", _diagnostics(self.diagnostics))
+         if self.colors is not None:
+             try:
+                 colors = np.asarray(self.colors)
+@@ -948,9 +955,10 @@
+         }
+         if any(len(value) not in SUPPORTED_JOINT_DIMENSIONS for value in names.values()):
+             raise ValueError("joint_names must contain 6 or 7 entries per arm")
+-        raw_transforms = _mapping(self.base_transforms, "base_transforms", allow_empty=False)
++        raw_transforms = _mapping(self.base_transforms, "base_transforms", allow_empty=embodiment == "arx_x5_2023_dual")
+         raw_links = _mapping(self.end_effector_links, "end_effector_links", allow_empty=False)
+-        if set(raw_transforms) != set(names) or set(raw_links) != set(names):
++        uncalibrated_pair = embodiment == "arx_x5_2023_dual" and not raw_transforms
++        if (not uncalibrated_pair and set(raw_transforms) != set(names)) or set(raw_links) != set(names):
+             raise ValueError(
+                 "joint_names, base_transforms, and end_effector_links must share arm names"
+             )
+@@ -985,16 +993,19 @@
+     time_dilation_factor: float | None = None
+     interpolation_dt_s: float | None = None
+     maximum_trajectory_dt_s: float | None = None
+-
+-    def __post_init__(self) -> None:
++    require_collision_check: bool = False
++
++    def __post_init__(self) -> None:
++        if type(self.require_collision_check) is not bool:
++            raise ValueError("require_collision_check must be boolean")
+         ik_solver = _non_empty_string(self.ik_solver, "ik_solver")
+         trajectory_planner = _non_empty_string(self.trajectory_planner, "trajectory_planner")
+         pose_planner = _non_empty_string(self.pose_planner, "pose_planner")
+-        if ik_solver not in {"pyroki", "curobo", "mink"}:
+-            raise ValueError("ik_solver must be 'pyroki', 'curobo', or 'mink'")
++        if ik_solver not in {"pyroki", "curobo", "mink", "station"}:
++            raise ValueError("ik_solver must be 'pyroki', 'curobo', 'mink', or 'station'")
+         if trajectory_planner not in {"interpolation", "curobo"}:
+             raise ValueError("trajectory_planner must be 'interpolation' or 'curobo'")
+-        if pose_planner not in {"composed", "curobo-integrated"}:
++        if pose_planner not in {"composed", "curobo-integrated", "station"}:
+             raise ValueError("pose_planner must be 'composed' or 'curobo-integrated'")
+         object.__setattr__(self, "ik_solver", ik_solver)
+         object.__setattr__(self, "trajectory_planner", trajectory_planner)
+@@ -1332,6 +1343,7 @@
+     CONTROLLER_FAILED = "controller_failed"
+     INVALID_REQUEST = "invalid_request"
+     UNSUPPORTED = "unsupported"
++    OUTCOME_UNKNOWN = "outcome_unknown"
+     FAILED = "failed"
+ 
+ 
+@@ -1350,6 +1362,7 @@
+     if error is None:  # _validate_result_status rejects this first; defensive typing only.
+         return ExecutionStatus.FAILED
+     mapping = {
++        ErrorCode.OUTCOME_UNKNOWN: ExecutionStatus.OUTCOME_UNKNOWN,
+         ErrorCode.TERMINATED: ExecutionStatus.TERMINATED,
+         ErrorCode.TRUNCATED: ExecutionStatus.TRUNCATED,
+         ErrorCode.TIMEOUT: ExecutionStatus.TIMEOUT,
+--- a/cap_harness/errors.py
++++ b/cap_harness/errors.py
+@@ -8,7 +8,7 @@
+ from __future__ import annotations
+ 
+ from collections.abc import Mapping
+-from dataclasses import dataclass, field
++from dataclasses import FrozenInstanceError, dataclass, field
+ from enum import Enum
+ from types import MappingProxyType
+ 
+@@ -27,6 +27,7 @@
+     IK_UNREACHABLE = "ik_unreachable"
+     PLANNING_FAILED = "planning_failed"
+     EXECUTION_FAILED = "execution_failed"
++    GOAL_TOLERANCE_NOT_MET = "goal_tolerance_not_met"
+     CONTROLLER_FAILED = "controller_failed"
+     PROVIDER_ERROR = "provider_error"
+     PROVIDER_UNAVAILABLE = "provider_unavailable"
+@@ -38,6 +39,7 @@
+     STALE_PLAN = "stale_plan"
+     SAFETY_INTERLOCK = "safety_interlock"
+     UNSUPPORTED = "unsupported"
++    OUTCOME_UNKNOWN = "outcome_unknown"
+     INTERNAL = "internal"
+ 
+ 
+@@ -52,7 +54,7 @@
+     return MappingProxyType(copied)
+ 
+ 
+-@dataclass(frozen=True, slots=True)
++@dataclass(slots=True, unsafe_hash=True)
+ class ApiError(Exception):
+     """An operational failure suitable for returning across an API boundary."""
+ 
+@@ -60,6 +62,18 @@
+     message: str
+     recoverable: bool = True
+     details: Mapping[str, object] = field(default_factory=dict)
++
++    def __setattr__(self, name, value):
++        # Keep contract fields immutable, while allowing Python/contextlib to
++        # attach traceback, cause and notes when this error is raised.
++        if name in ('code', 'message', 'recoverable', 'details') and hasattr(self, name):
++            raise FrozenInstanceError(f'cannot assign to field {name!r}')
++        Exception.__setattr__(self, name, value)
++
++    def __delattr__(self, name):
++        if name in ('code', 'message', 'recoverable', 'details'):
++            raise FrozenInstanceError(f'cannot delete field {name!r}')
++        Exception.__delattr__(self, name)
+ 
+     def __post_init__(self) -> None:
+         code = self.code
+--- a/cap_harness/runtime.py
++++ b/cap_harness/runtime.py
+@@ -37,6 +37,11 @@
+ 
+ 
+ def _restricted_import(name: str, globals=None, locals=None, fromlist=(), level=0):  # noqa: A002
++    # ndarray.mean/min/max/sum request this already-loaded numeric helper from C.
++    # Source validation still permits only `import math`; this is not a new
++    # program import capability and performs no dynamic module/file loading.
++    if name == 'numpy._core._methods' and level == 0:
++        return np._core._methods
+     if level != 0 or name not in ALLOWED_IMPORTS:
+         raise ImportError(f"import of {name!r} is not allowed in generated programs")
+     return importlib.import_module(name)
+@@ -246,7 +251,7 @@
+             )
+ 
+         environment: dict[str, object] = {
+-            "__builtins__": _SAFE_BUILTINS,
++            "__builtins__": dict(_SAFE_BUILTINS),
+             **_SAFE_CONSTRUCTORS,
+             **self.public_namespace(),
+         }
+--- a/cap_harness/providers/__init__.py
++++ b/cap_harness/providers/__init__.py
+@@ -1,23 +1,4 @@
+-"""Concrete service-provider clients."""
+-
+-from .curobo import CuRoboClient, CuRoboProvider
+-from .graspnet import ContactGraspNetClient, ContactGraspNetProvider, GraspNetProvider
+-from .http import HttpProviderClient, ProviderHttpError
+-from .pyroki import PyRokiClient, PyRokiProvider, PyrokiProvider
+-from .sam3 import Sam3Client, SAM3Provider, Sam3Provider
+-
+-__all__ = [
+-    "ContactGraspNetClient",
+-    "ContactGraspNetProvider",
+-    "CuRoboClient",
+-    "CuRoboProvider",
+-    "GraspNetProvider",
+-    "HttpProviderClient",
+-    "ProviderHttpError",
+-    "PyRokiClient",
+-    "PyRokiProvider",
+-    "PyrokiProvider",
+-    "SAM3Provider",
+-    "Sam3Client",
+-    "Sam3Provider",
+-]
++"""Deployment subset of ASPIRE providers; optional model servers import lazily."""
++from .sam3.client import Sam3Provider
++from .graspnet.client import ContactGraspNetProvider
++__all__ = ['Sam3Provider', 'ContactGraspNetProvider']
+--- a/cap_harness/providers/http.py
++++ b/cap_harness/providers/http.py
+@@ -57,13 +57,13 @@
+         self.session = session if session is not None else requests.Session()
+         self._sleep = sleep
+ 
+-    def health(self, path: str = "/openapi.json") -> bool:
++    def health(self, path: str = "/healthz") -> bool:
+         """Return whether the service responds successfully to an explicit probe."""
+         try:
+-            self.request_json("GET", path)
++            status=self.request_json("GET", path)
+         except ProviderHttpError:
+             return False
+-        return True
++        return status.get('ok') is True and status.get('weights_loaded') is True
+ 
+     def post_json(self, path: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+         return self.request_json("POST", path, payload=payload)
+--- a/cap_harness/providers/service_runtime.py
++++ b/cap_harness/providers/service_runtime.py
+@@ -36,7 +36,7 @@
+     return value
+ 
+ 
+-def install_service_runtime(app, *, limit: int | None = None):
++def install_service_runtime(app, *, limit: int | None = None, ready=lambda: True):
+     """Bound concurrent inference requests and expose a health endpoint.
+ 
+     At most ``limit`` inference requests run concurrently; excess requests queue
+@@ -56,6 +56,8 @@
+ 
+     @app.get("/healthz")
+     async def _healthz():  # pragma: no cover - exercised live
+-        return {"ok": True, "request_limit": app.state.request_limit}
++        from fastapi.responses import JSONResponse
++        loaded=bool(ready())
++        return JSONResponse({"ok":loaded,"weights_loaded":loaded,"request_limit":app.state.request_limit},status_code=200 if loaded else 503)
+ 
+     return app
+--- a/cap_harness/providers/sam3/service.py
++++ b/cap_harness/providers/sam3/service.py
+@@ -3,6 +3,8 @@
+ from __future__ import annotations
+ 
+ import argparse
++import os
++from pathlib import Path
+ import asyncio
+ import base64
+ import functools
+@@ -13,7 +15,7 @@
+ from fastapi import FastAPI, HTTPException
+ import numpy as np
+ from PIL import Image
+-from pydantic import BaseModel
++from pydantic import BaseModel, Field
+ from sam3.model.sam3_image_processor import Sam3Processor
+ from sam3.model_builder import build_sam3_image_model
+ import torch
+@@ -22,17 +24,43 @@
+ from cap_harness.providers.service_runtime import install_service_runtime
+ 
+ from .wire import SEGMENT_PATH, SEGMENT_POINT_PATH
++from .policy import (DEFAULT_TEXT_CONFIDENCE_THRESHOLD, TEXT_SCORE_SEMANTICS,
++                     prompt_diagnostics, text_confidence_threshold)
+ 
+ LOGGER = logging.getLogger(__name__)
+ app = FastAPI(title="cap-harness SAM3 provider")
+ # Bound concurrent GPU/inference requests so one instance safely serves
+ # multiple simulator clients (limit from CAP_HARNESS_SERVICE_CONCURRENCY).
+-install_service_runtime(app)
++install_service_runtime(app, ready=lambda: _MODEL is not None and _PROCESSOR is not None)
+ _MODEL: Any | None = None
+ _PROCESSOR: Any | None = None
+ _DEVICE = "cuda"
+ _GPU_SEMAPHORE = asyncio.Semaphore(1)
+ _MAX_SEGMENTATIONS = 5
++_TEXT_CONFIDENCE_THRESHOLD = DEFAULT_TEXT_CONFIDENCE_THRESHOLD
++
++
++class GroundingDiagnosticsModel:
++    """Observe unfiltered scores without changing the pinned processor's filter.
++
++    Sam3Processor calls forward_grounding directly (not Module.forward), so a
++    torch forward hook would miss it. This facade delegates the same single
++    inference and retains only its scores, never a second set of full masks.
++    """
++
++    def __init__(self, model):
++        self.model = model
++        self.raw_scores = []
++
++    def __getattr__(self, name):
++        return getattr(self.model, name)
++
++    def forward_grounding(self, **kwargs):
++        output = self.model.forward_grounding(**kwargs)
++        scores = (output["pred_logits"].sigmoid()
++                  * output["presence_logit_dec"].sigmoid().unsqueeze(1)).squeeze(-1)
++        self.raw_scores = _to_numpy(scores).reshape(-1).astype(float).tolist()
++        return output
+ 
+ 
+ class SegmentRequest(BaseModel):
+@@ -55,6 +83,7 @@
+ 
+ class SegmentResponse(BaseModel):
+     results: list[MaskData]
++    diagnostics: dict[str, Any] = Field(default_factory=dict)
+ 
+ 
+ class PointPromptResponse(BaseModel):
+@@ -118,16 +147,28 @@
+ 
+ 
+ def _segment_text(image: Image.Image, prompt: str) -> SegmentResponse:
++    diagnostics = dict(prompt_diagnostics(_MODEL.backbone.language_backbone, prompt),
++                       provider="sam3", prompt_type="text",
++                       score_semantics=TEXT_SCORE_SEMANTICS,
++                       text_confidence_threshold=_TEXT_CONFIDENCE_THRESHOLD,
++                       threshold_comparison=">", label_is_query=True)
++    if not prompt.strip() or diagnostics["would_truncate"]:
++        diagnostics["rejection_reason"] = "prompt_too_long" if prompt.strip() else "empty_prompt"
++        return SegmentResponse(results=[], diagnostics=diagnostics)
++    _PROCESSOR.model.raw_scores = []
+     device_type = "cuda" if "cuda" in _DEVICE else "cpu"
+     with torch.autocast(device_type, dtype=torch.bfloat16):
+         state = _PROCESSOR.set_image(image)
+         output = _PROCESSOR.set_text_prompt(state=state, prompt=prompt)
+ 
++    diagnostics["raw_scores"] = _PROCESSOR.model.raw_scores
++
+     masks = output.get("masks")
+     boxes = output.get("boxes")
+     scores = output.get("scores")
+     if masks is None or boxes is None or scores is None:
+-        return SegmentResponse(results=[])
++        diagnostics["rejection_reason"] = "no_candidates"
++        return SegmentResponse(results=[], diagnostics=diagnostics)
+ 
+     mask_array = _to_numpy(masks)
+     if mask_array.ndim == 4 and mask_array.shape[1] == 1:
+@@ -143,9 +184,13 @@
+             label=prompt,
+         )
+         for index in range(len(score_array))
++        if np.isfinite(score_array[index]) and score_array[index] > _TEXT_CONFIDENCE_THRESHOLD
++        and np.any(mask_array[index] > 0)
+     ]
+     results.sort(key=lambda item: item.score, reverse=True)
+-    return SegmentResponse(results=results[:_MAX_SEGMENTATIONS])
++    diagnostics["accepted_count"] = len(results)
++    diagnostics["rejection_reason"] = None if results else "no_trusted_candidates"
++    return SegmentResponse(results=results[:_MAX_SEGMENTATIONS], diagnostics=diagnostics)
+ 
+ 
+ def _segment_point(image: Image.Image, point: tuple[float, float]) -> PointPromptResponse:
+@@ -213,9 +258,12 @@
+     parser.add_argument("--device", default="cuda")
+     parser.add_argument("--host", default="127.0.0.1")
+     parser.add_argument("--port", type=int, default=8114)
++    parser.add_argument("--text-confidence-threshold", type=text_confidence_threshold,
++                        default=DEFAULT_TEXT_CONFIDENCE_THRESHOLD)
+     args = parser.parse_args()
+ 
+-    global _DEVICE, _MODEL, _PROCESSOR
++    global _DEVICE, _MODEL, _PROCESSOR, _TEXT_CONFIDENCE_THRESHOLD
++    _TEXT_CONFIDENCE_THRESHOLD = args.text_confidence_threshold
+     _DEVICE = args.device
+     if torch.cuda.is_available():
+         torch.backends.cuda.matmul.allow_tf32 = True
+@@ -223,8 +271,14 @@
+         if "cuda" in args.device:
+             torch.cuda.set_device(int(args.device.split(":")[-1]) if ":" in args.device else 0)
+     LOGGER.info("Loading SAM3 model on %s", args.device)
+-    _MODEL = build_sam3_image_model(enable_inst_interactivity=True).to(args.device)
+-    _PROCESSOR = Sam3Processor(_MODEL, device=args.device, confidence_threshold=0.0)
++    checkpoint = os.environ.get("SAM3_CHECKPOINT")
++    if not checkpoint or not Path(checkpoint).is_file():
++        raise RuntimeError("SAM3_CHECKPOINT must name an existing trained checkpoint")
++    _MODEL = build_sam3_image_model(checkpoint_path=checkpoint, load_from_HF=False, enable_inst_interactivity=True).to(args.device)
++    _PROCESSOR = Sam3Processor(GroundingDiagnosticsModel(_MODEL), device=args.device,
++                              confidence_threshold=_TEXT_CONFIDENCE_THRESHOLD)
++    LOGGER.info("SAM3 text confidence threshold > %s; point scores use separate semantics",
++                _TEXT_CONFIDENCE_THRESHOLD)
+     uvicorn.run(app, host=args.host, port=args.port)
+ 
+ 
+--- a/cap_harness/providers/graspnet/service.py
++++ b/cap_harness/providers/graspnet/service.py
+@@ -16,6 +16,7 @@
+ 
+ from fastapi import FastAPI, HTTPException
+ import numpy as np
++import torch
+ from pydantic import BaseModel
+ import uvicorn
+ import yaml
+@@ -28,8 +29,9 @@
+ app = FastAPI(title="cap-harness Contact-GraspNet provider")
+ # Bound concurrent GPU/inference requests so one instance safely serves
+ # multiple simulator clients (limit from CAP_HARNESS_SERVICE_CONCURRENCY).
+-install_service_runtime(app)
++install_service_runtime(app, ready=lambda: _ESTIMATOR is not None and _LOADED)
+ _ESTIMATOR: Any | None = None
++_LOADED = False
+ _GPU_SEMAPHORE = asyncio.Semaphore(1)
+ 
+ 
+@@ -47,6 +49,7 @@
+     grasps_base64: str
+     scores_base64: str
+     contact_pts_base64: str
++    widths_base64: str
+ 
+ 
+ async def _run_serialized(function: Any, *args: Any) -> Any:
+@@ -103,27 +106,28 @@
+     full: np.ndarray,
+     segment: np.ndarray,
+     request: PlanPointCloudsRequest,
+-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
++) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+     segment_id = request.segmap_id
+ 
+     def run_in_frame(
+         full_points: np.ndarray, segment_points: np.ndarray
+-    ) -> tuple[dict[int, Any], dict[int, Any], dict[int, Any]]:
+-        grasps, scores, contacts, _ = _ESTIMATOR.predict_scene_grasps(
++    ) -> tuple[dict[int, Any], dict[int, Any], dict[int, Any], dict[int, Any]]:
++        grasps, scores, contacts, widths = _ESTIMATOR.predict_scene_grasps(
+             full_points,
+             pc_segments={segment_id: segment_points},
+             local_regions=request.local_regions,
+             filter_grasps=request.filter_grasps,
+             forward_passes=request.forward_passes,
+         )
+-        return grasps, scores, contacts
+-
+-    grasps, scores, contacts = run_in_frame(full, segment)
++        return grasps, scores, contacts, widths
++
++    grasps, scores, contacts, widths = run_in_frame(full, segment)
+     if len(grasps.get(segment_id, [])):
+         return (
+             np.asarray(grasps[segment_id]),
+             np.asarray(scores[segment_id]),
+             np.asarray(contacts[segment_id]),
++            np.asarray(widths[segment_id]),
+         )
+ 
+     target = np.mean(segment if len(segment) else full, axis=0)
+@@ -134,7 +138,7 @@
+         world_to_camera = np.linalg.inv(camera_to_world)
+         full_camera = (world_to_camera @ full_h.T).T[:, :3]
+         segment_camera = (world_to_camera @ segment_h.T).T[:, :3]
+-        retry_grasps, retry_scores, retry_contacts = run_in_frame(full_camera, segment_camera)
++        retry_grasps, retry_scores, retry_contacts, retry_widths = run_in_frame(full_camera, segment_camera)
+         if not len(retry_grasps.get(segment_id, [])):
+             continue
+         grasp_array = camera_to_world @ np.asarray(retry_grasps[segment_id])
+@@ -144,8 +148,9 @@
+             grasp_array,
+             np.asarray(retry_scores[segment_id]),
+             (camera_to_world @ contact_h.T).T[:, :3],
++            np.asarray(retry_widths[segment_id]),
+         )
+-    return np.asarray([]), np.asarray([]), np.asarray([])
++    return np.asarray([]), np.asarray([]), np.asarray([]), np.asarray([])
+ 
+ 
+ def _plan(request: PlanPointCloudsRequest) -> PlanResponse:
+@@ -155,11 +160,13 @@
+         raise HTTPException(status_code=400, detail="pc_full must have non-empty shape (N, 3)")
+     if segment.ndim != 2 or segment.shape[1] != 3 or not len(segment):
+         raise HTTPException(status_code=400, detail="pc_segment must have non-empty shape (N, 3)")
+-    grasps, scores, contacts = _predict(full, segment, request)
++    with torch.inference_mode():
++        grasps, scores, contacts, widths = _predict(full, segment, request)
+     return PlanResponse(
+         grasps_base64=_encode_numpy(grasps),
+         scores_base64=_encode_numpy(scores),
+         contact_pts_base64=_encode_numpy(contacts),
++        widths_base64=_encode_numpy(widths),
+     )
+ 
+ 
+@@ -194,20 +201,29 @@
+     pointnet = vendor / "Pointnet_Pointnet2_pytorch"
+     sys.path.extend([str(pointnet), str(vendor)])
+     try:
+-        from contact_graspnet_pytorch.checkpoints import CheckpointIO
+         from contact_graspnet_pytorch.contact_grasp_estimator import GraspEstimator
+     except ImportError:
+         LOGGER.exception("Cannot import Contact-GraspNet from %s", vendor)
+         raise
+ 
+     checkpoint_root = vendor / "checkpoints/contact_graspnet"
+-    global _ESTIMATOR
++    global _ESTIMATOR, _LOADED
+     _ESTIMATOR = GraspEstimator(_load_config(checkpoint_root))
+-    checkpoint_io = CheckpointIO(
+-        checkpoint_dir=checkpoint_root / "checkpoints", model=_ESTIMATOR.model
+-    )
+-    with contextlib.suppress(FileExistsError):
+-        checkpoint_io.load("model.pt")
++    checkpoint = checkpoint_root / "checkpoints" / "model.pt"
++    if not checkpoint.is_file() or checkpoint.stat().st_size < 1000000:
++        raise RuntimeError("trained Contact-GraspNet checkpoint is missing")
++    # The released checkpoint includes a NumPy scalar training metric. Allow
++    # those concrete data types without enabling arbitrary pickle execution.
++    with torch.serialization.safe_globals([
++        (np._core.multiarray.scalar, 'numpy.core.multiarray.scalar'),
++        np.dtype, np.dtypes.Float64DType,
++    ]):
++        state = torch.load(checkpoint, map_location=args.device, weights_only=True)
++    if "model" not in state:
++        raise RuntimeError("checkpoint has no trained model state")
++    _ESTIMATOR.model.load_state_dict(state["model"], strict=True)
++    _ESTIMATOR.model.eval()
++    _LOADED = True
+     LOGGER.info("Contact-GraspNet loaded on %s", args.device)
+     uvicorn.run(app, host=args.host, port=args.port)
+ 
+--- a/cap_harness/providers/graspnet/client.py
++++ b/cap_harness/providers/graspnet/client.py
+@@ -60,6 +60,9 @@
+         service_max_retries: int = 7,
+         forward_passes: int = 1,
+         default_width_m: float = 0.08,
++        grasp_to_tcp: np.ndarray | None = None,
++        require_predicted_width: bool = False,
++        maximum_width_m: float | None = 0.08,
+         session: requests.Session | None = None,
+     ) -> None:
+         if service_max_retries < 0:
+@@ -78,6 +81,11 @@
+         self.service_max_retries = int(service_max_retries)
+         self.forward_passes = int(forward_passes)
+         self.default_width_m = float(default_width_m)
++        self.grasp_to_tcp = _LOCAL_Z_90_DEG if grasp_to_tcp is None else np.asarray(grasp_to_tcp, dtype=float)
++        if self.grasp_to_tcp.shape != (4,4) or not np.all(np.isfinite(self.grasp_to_tcp)):
++            raise ValueError("invalid grasp_to_tcp")
++        self.require_predicted_width = require_predicted_width
++        self.maximum_width_m = maximum_width_m
+ 
+     @property
+     def base_url(self) -> str:
+@@ -150,6 +158,7 @@
+                 transforms,
+                 scores,
+                 contacts,
++                widths=_decode_numpy(response["widths_base64"]) if "widths_base64" in response else None,
+                 frame=point_cloud.frame,
+                 max_candidates=max_candidates,
+             )
+@@ -181,6 +190,7 @@
+         contacts: np.ndarray,
+         *,
+         frame: str,
++        widths: np.ndarray | None = None,
+         max_candidates: int | None,
+     ) -> list[GraspCandidate]:
+         if transforms.size == 0:
+@@ -199,15 +209,24 @@
+         elif contacts.shape != (len(transforms), 3) or not bool(np.all(np.isfinite(contacts))):
+             raise ValueError("contact points must have finite shape (N, 3)")
+ 
++        if widths is None:
++            if self.require_predicted_width:
++                raise ValueError("service omitted predicted gripper openings")
++            widths = np.full(len(scores), self.default_width_m)
++        widths = np.asarray(widths, dtype=float).reshape(-1)
++        if len(widths) != len(scores) or not np.all(np.isfinite(widths)) or np.any(widths <= 0):
++            raise ValueError("invalid predicted openings")
+         order = np.argsort(-scores, kind="stable")
++        if self.maximum_width_m is not None:
++            order = order[widths[order] <= self.maximum_width_m]
+         if max_candidates is not None:
+             order = order[:max_candidates]
+         candidates: list[GraspCandidate] = []
+         for index in order:
+             raw_transform = np.asarray(transforms[index], dtype=np.float64)
+-            transform = raw_transform @ _LOCAL_Z_90_DEG
++            transform = raw_transform @ self.grasp_to_tcp
+             metadata: dict[str, object] = {
+-                "orientation_correction": "right_multiply_local_z_90_deg"
++                "grasp_to_tcp": self.grasp_to_tcp.tolist(), "width_source": "network_prediction" if self.require_predicted_width else "provider_default"
+             }
+             if contacts.shape[1:] == (3,):
+                 metadata["contact_point"] = tuple(float(value) for value in contacts[index])
+@@ -215,7 +234,7 @@
+                 GraspCandidate(
+                     pose=matrix_to_pose(transform, frame=frame),
+                     score=float(scores[index]),
+-                    width_m=self.default_width_m,
++                    width_m=float(widths[index]),
+                     metadata=metadata,
+                 )
+             )
+--- a/cap_harness/protocols.py
++++ b/cap_harness/protocols.py
+@@ -38,8 +38,10 @@
+         self,
+         observation: CameraObservation,
+         query: str,
++        *,
++        model_query: str | None = None,
+     ) -> SegmentationSet:
+-        """Segment instances matching ``query`` in one camera observation."""
++        """Segment a short model_query while preserving the original query."""
+         ...
+ 
+     def segment_points(
+--- a/cap_harness/providers/sam3/client.py
++++ b/cap_harness/providers/sam3/client.py
+@@ -16,6 +16,8 @@
+ from cap_harness.errors import ApiError, ErrorCode
+ from cap_harness.providers.http import HttpProviderClient, ProviderHttpError
+ from cap_harness.providers.sam3.wire import SEGMENT_PATH, SEGMENT_POINT_PATH
++from .policy import (DEFAULT_TEXT_CONFIDENCE_THRESHOLD, TEXT_SCORE_SEMANTICS,
++                     POINT_SCORE_SEMANTICS, text_confidence_threshold)
+ 
+ DEFAULT_SAM3_URL = "http://127.0.0.1:8114"
+ MAX_SEGMENTATIONS = 5
+@@ -76,7 +78,9 @@
+         max_retries: int = 2,
+         retry_backoff_s: float = 0.1,
+         session: requests.Session | None = None,
++        text_threshold: float = DEFAULT_TEXT_CONFIDENCE_THRESHOLD,
+     ) -> None:
++        self.text_threshold = text_confidence_threshold(text_threshold)
+         self._http = HttpProviderClient(
+             base_url,
+             timeout_s=timeout_s,
+@@ -96,12 +100,21 @@
+         self,
+         observation: CameraObservation,
+         query: str,
++        *,
++        model_query: str | None = None,
+     ) -> SegmentationSet:
+         if not isinstance(observation, CameraObservation):
+             return self._failure(ErrorCode.INVALID_REQUEST, "observation must be CameraObservation")
+         if not isinstance(query, str) or not query.strip():
+             return self._failure(ErrorCode.INVALID_REQUEST, "query must be a non-empty string")
+-        query = query.strip()
++        original_query = query
++        if model_query is not None and (not isinstance(model_query, str) or not model_query.strip()):
++            return self._failure(ErrorCode.INVALID_REQUEST, "model_query must be a non-empty string")
++        query = (model_query if model_query is not None else query).strip()
++        diagnostics = {"provider": "sam3", "query": original_query,
++                       "original_query": original_query, "model_query": query,
++                       "prompt_type": "text", "score_semantics": TEXT_SCORE_SEMANTICS,
++                       "label_is_query": True, "client_text_confidence_threshold": self.text_threshold}
+         try:
+             response = self._http.post_json(
+                 SEGMENT_PATH,
+@@ -111,6 +124,24 @@
+             if not isinstance(raw_results, list):
+                 # Preserve the invalid-data ValueError contract.
+                 raise ValueError("response field 'results' must be a list")
++
++            service_diagnostics = response.get("diagnostics", {})
++            if not isinstance(service_diagnostics, Mapping):
++                raise ValueError("response diagnostics must be an object")
++            service_threshold = service_diagnostics.get("text_confidence_threshold")
++            threshold = max(self.text_threshold, text_confidence_threshold(service_threshold)
++                            if service_threshold is not None else self.text_threshold)
++            diagnostics.update(service_diagnostics)
++            diagnostics.update(original_query=original_query, query=original_query, model_query=query,
++                               provider="sam3", prompt_type="text", score_semantics=TEXT_SCORE_SEMANTICS,
++                               text_confidence_threshold=threshold, threshold_comparison=">",
++                               service_text_confidence_threshold=service_threshold,
++                               client_text_confidence_threshold=self.text_threshold)
++            diagnostics['token_length_checked'] = 'tokens_including_specials' in service_diagnostics
++            if service_diagnostics.get("rejection_reason") in {"prompt_too_long", "empty_prompt"}:
++                return self._failure(ErrorCode.INVALID_REQUEST,
++                    "SAM3 requires a short, non-empty visual description; shorten model_query",
++                    details=diagnostics)
+ 
+             segmentations: list[Segmentation] = []
+             for item in raw_results:
+@@ -139,26 +170,33 @@
+                     )
+                 )
+         except ProviderHttpError as exc:
+-            return SegmentationSet(ok=False, error=exc.error)
++            return SegmentationSet(ok=False, error=exc.error, diagnostics=diagnostics)
+         except (TypeError, ValueError, KeyError) as exc:
+             return self._failure(
+                 ErrorCode.PERCEPTION_FAILED,
+                 "SAM3 returned an invalid text-segmentation response",
+-                details={"provider": "sam3", "error": str(exc)},
+-            )
+-
++                details=dict(diagnostics, error=str(exc)),
++            )
++
++        diagnostics["returned_scores"] = [s.score for s in segmentations]
++        diagnostics.setdefault("raw_scores", diagnostics["returned_scores"])
++        diagnostics["rejected_candidates"] = [
++            {"score": s.score, "reason": "below_text_threshold" if s.score <= threshold else "empty_mask"}
++            for s in segmentations if s.score <= threshold or not np.any(s.mask)]
++        segmentations = [s for s in segmentations if s.score > threshold and np.any(s.mask)]
+         if not segmentations:
++            diagnostics["rejection_reason"] = "no_trusted_candidates"
+             return self._failure(
+                 ErrorCode.NO_SEGMENTATION,
+-                f"SAM3 found no segmentation for {query!r}",
+-                details={"provider": "sam3", "query": query},
++                "SAM3 found no trusted text candidate; revise the short description or select a point from the image",
++                details=diagnostics,
+             )
+         segmentations.sort(key=lambda item: item.score, reverse=True)
+         segmentations = segmentations[:MAX_SEGMENTATIONS]
+         return SegmentationSet(
+             ok=True,
+             segmentations=segmentations,
+-            diagnostics={"provider": "sam3", "query": query},
++            diagnostics=dict(diagnostics, rejection_reason=None),
+         )
+ 
+     def segment_points(
+@@ -207,6 +245,11 @@
+             scores = np.asarray(scores_raw, dtype=np.float64)
+             if scores.ndim != 1 or not bool(np.all(np.isfinite(scores))):
+                 raise ValueError("scores must be a finite vector")
++            if len(scores) == 0:
++                return self._failure(ErrorCode.NO_SEGMENTATION,
++                    "SAM3 found no segmentation for the point prompt",
++                    details={"provider": "sam3", "prompt_type": "point", "point_px": (x, y),
++                             "score_semantics": POINT_SCORE_SEMANTICS, "raw_scores": []})
+             shape = self._shape(response.get("masks_shape"), dimensions=3)
+             if shape[0] != len(scores) or shape[1:] != observation.rgb.shape[:2]:
+                 raise ValueError("point-mask shape does not match scores and image")
+@@ -225,6 +268,7 @@
+                     frame=observation.frame,
+                 )
+                 for mask, score in zip(masks, scores, strict=False)
++                if np.any(mask > 0)
+             ]
+         except ProviderHttpError as exc:
+             return SegmentationSet(ok=False, error=exc.error)
+@@ -246,7 +290,10 @@
+         return SegmentationSet(
+             ok=True,
+             segmentations=segmentations,
+-            diagnostics={"provider": "sam3", "point_px": (x, y)},
++            diagnostics={"provider": "sam3", "point_px": (x, y), "prompt_type": "point",
++                         "score_semantics": POINT_SCORE_SEMANTICS, "raw_scores": scores.tolist(),
++                         "text_confidence_threshold_applied": False,
++                         "selection_requires_visual_confirmation": True},
+         )
+ 
+     @staticmethod
+@@ -267,6 +314,7 @@
+         return SegmentationSet(
+             ok=False,
+             error=ApiError(code=code, message=message, details=details or {}),
++            diagnostics=details or {},
+         )
+ 
+ 
+--- /dev/null
++++ b/cap_harness/providers/sam3/policy.py
+@@ -0,0 +1,28 @@
++"""Text-only SAM3 acceptance policy, shared by service and client.
++
++The pinned processor uses a strict greater-than comparison. Point prompt
++scores estimate mask quality and must not be interpreted as text confidence.
++"""
++import math
++
++DEFAULT_TEXT_CONFIDENCE_THRESHOLD = 0.5
++TEXT_SCORE_SEMANTICS = "text_grounding_probability_times_presence"
++POINT_SCORE_SEMANTICS = "point_mask_quality_not_text_confidence"
++
++
++def text_confidence_threshold(value):
++    if isinstance(value, bool):
++        raise ValueError("SAM3 text confidence threshold must be finite and 0 < t < 1")
++    threshold = float(value)
++    if not math.isfinite(threshold) or not 0 < threshold < 1:
++        raise ValueError("SAM3 text confidence threshold must be finite and 0 < t < 1")
++    return threshold
++
++
++def prompt_diagnostics(encoder, prompt):
++    """Count with the actual model tokenizer before its silent truncation."""
++    count = len(encoder.tokenizer.encode(prompt)) + 2
++    limit = int(encoder.context_length)
++    return {"model_query": prompt, "tokens_including_specials": count,
++            "context_length": limit, "would_truncate": count > limit,
++            "truncated": False}
+--- a/cap_harness/geometry.py
++++ b/cap_harness/geometry.py
+@@ -5,6 +5,8 @@
+ from collections.abc import Mapping, Sequence
+ 
+ import numpy as np
++
++from cap_harness.depth import DepthSelectionError, select_depth_pixels
+ 
+ from cap_harness.contracts import (
+     CameraObservation,
+@@ -209,6 +211,7 @@
+         points=transform_points(point_cloud.points, transform),
+         frame=target_frame,
+         colors=point_cloud.colors,
++        diagnostics=point_cloud.diagnostics,
+     )
+ 
+ 
+@@ -234,6 +237,10 @@
+         points=point_cloud.points[keep],
+         frame=point_cloud.frame,
+         colors=colors,
++        diagnostics=dict(point_cloud.diagnostics, crop={
++            "input_points": len(point_cloud.points), "retained_points": int(np.count_nonzero(keep)),
++            "frame": point_cloud.frame, "lower_xyz": lower.tolist(), "upper_xyz": upper.tolist(),
++        }),
+     )
+ 
+ 
+@@ -261,8 +268,16 @@
+     segmentation: Segmentation,
+     *,
+     target_frame: str | None = None,
++    depth_range_m: Sequence[float] | None = None,
++    seed_px: Sequence[int] | None = None,
++    max_depth_jump_m: float | None = None,
+ ) -> PointCloud:
+-    """Back-project a mask and optionally transform it to the camera parent frame."""
++    """Project selected pixels; optional depth/seed filters are explicitly requested.
++
++    Depth limits are camera-Z meters, even when the output is in another frame.
++    A seed [x,y] and depth jump retain its 4-connected depth component, never
++    the largest component. Diagnostics describe this source projection.
++    """
+     if not isinstance(observation, CameraObservation):
+         # Preserve the invalid-data ValueError contract.
+         raise ValueError("observation must be a CameraObservation")
+@@ -277,14 +292,18 @@
+     if segmentation.mask.shape != observation.depth_m.shape:
+         raise ValueError("segmentation mask shape does not match camera depth")
+ 
+-    rows, columns = np.nonzero(segmentation.mask)
++    source = dict(camera_frame=observation.frame, observation_id=segmentation.observation_id,
++                  timestamp_s=observation.timestamp_s)
++    try:
++        rows, columns, evidence = select_depth_pixels(
++            observation.depth_m, segmentation.mask, depth_range_m=depth_range_m,
++            seed_px=seed_px, max_depth_jump_m=max_depth_jump_m,
++        )
++    except DepthSelectionError as exc:
++        exc.diagnostics.update(source)
++        raise
++    evidence.update(source)
+     depths = observation.depth_m[rows, columns]
+-    valid = np.isfinite(depths) & (depths > 0.0)
+-    rows = rows[valid]
+-    columns = columns[valid]
+-    depths = depths[valid]
+-    if depths.size == 0:
+-        raise ValueError("segmentation contains no pixels with valid positive depth")
+ 
+     intrinsics = observation.intrinsics
+     x = (columns - intrinsics[0, 2]) * depths / intrinsics[0, 0]
+@@ -295,6 +314,7 @@
+         points=camera_points,
+         frame=observation.frame,
+         colors=colors,
++        diagnostics={"projection": evidence},
+     )
+ 
+     destination = observation.frame if target_frame is None else target_frame
+--- /dev/null
++++ b/cap_harness/depth.py
+@@ -0,0 +1,105 @@
++"""Explicit, mask-bounded RGB-D selection; no semantic target inference."""
++from collections import deque
++
++import numpy as np
++
++
++class DepthSelectionError(ValueError):
++    """Recoverable empty/unsupported selection with its measured evidence."""
++
++    def __init__(self, message, diagnostics):
++        super().__init__(message)
++        self.diagnostics = diagnostics
++
++
++def _distribution(values):
++    if not values.size:
++        return None
++    return dict(zip(("min", "p01", "p05", "median", "p95", "p99", "max"),
++                    map(float, np.quantile(values, [0, .01, .05, .5, .95, .99, 1]))))
++
++
++def select_depth_pixels(depth, mask, *, depth_range_m=None, seed_px=None,
++                        max_depth_jump_m=None):
++    """Return rows/columns plus camera-Z evidence, without changing input arrays.
++
++    With a seed, retain only its 4-connected component whose adjacent depth
++    differences meet the requested limit. This is local continuity, not a
++    bound on total depth span and not proof that a component is one object.
++    """
++    bounds = None
++    if depth_range_m is not None:
++        bounds = np.asarray(depth_range_m)
++        if (bounds.shape != (2,) or not np.issubdtype(bounds.dtype, np.number)
++                or np.iscomplexobj(bounds) or not np.all(np.isfinite(bounds))
++                or not 0 <= bounds[0] < bounds[1]):
++            raise ValueError("depth_range_m must be finite [min, max] with 0 <= min < max")
++        bounds = bounds.astype(float)
++    if (seed_px is None) != (max_depth_jump_m is None):
++        raise ValueError("seed_px and max_depth_jump_m must be supplied together")
++    seed = None
++    if seed_px is not None:
++        xy = np.asarray(seed_px)
++        if (xy.shape != (2,) or not np.issubdtype(xy.dtype, np.number)
++                or np.iscomplexobj(xy) or not np.all(np.isfinite(xy))
++                or not np.all(xy == np.floor(xy))):
++            raise ValueError("seed_px must be an integer pixel [x, y]")
++        x, y = map(int, xy)
++        if not (0 <= x < depth.shape[1] and 0 <= y < depth.shape[0]):
++            raise ValueError("seed_px is outside the image")
++        if (isinstance(max_depth_jump_m, (bool, np.bool_))
++                or not isinstance(max_depth_jump_m, (int, float, np.integer, np.floating))):
++            raise ValueError("max_depth_jump_m must be a finite positive number")
++        jump = float(max_depth_jump_m)
++        if not np.isfinite(jump) or jump <= 0:
++            raise ValueError("max_depth_jump_m must be a finite positive number")
++        seed = (x, y)
++
++    valid = mask & np.isfinite(depth) & (depth > 0)
++    count = int(np.count_nonzero(mask))
++    valid_count = int(np.count_nonzero(valid))
++    keep = valid.copy()
++    if bounds is not None:
++        keep &= (depth >= bounds[0]) & (depth <= bounds[1])
++    in_range_count = int(np.count_nonzero(keep))
++    evidence = dict(
++        depth_axis="camera_z", units="m", selected_pixels=count,
++        valid_positive_pixels=valid_count, invalid_depth_pixels=count-valid_count,
++        input_depth_m=_distribution(depth[valid]),
++        depth_range_m=None if bounds is None else bounds.tolist(),
++        seed_px=None if seed is None else list(seed),
++        max_depth_jump_m=None if seed is None else jump,
++        connectivity=None if seed is None else 4,
++        removed_by_depth_range=valid_count-in_range_count,
++        removed_by_connectivity=0, retained_pixels=in_range_count,
++        retained_fraction=in_range_count/count if count else 0.,
++        output_depth_m=_distribution(depth[keep]),
++        target_identity_verified=False, depth_accuracy_verified=False,
++    )
++    if seed is not None:
++        x, y = seed
++        if not keep[y, x]:
++            evidence.update(retained_pixels=0, retained_fraction=0., output_depth_m=None,
++                            rejection_reason="seed_has_no_selected_depth")
++            raise DepthSelectionError("seed_px must lie inside the mask with valid in-range depth", evidence)
++        connected = np.zeros_like(keep)
++        connected[y, x] = True
++        queue = deque([(y, x)])
++        height, width = depth.shape
++        while queue:
++            row, col = queue.popleft()
++            for nr, nc in ((row-1, col), (row+1, col), (row, col-1), (row, col+1)):
++                if (0 <= nr < height and 0 <= nc < width and keep[nr, nc]
++                        and not connected[nr, nc]
++                        and abs(depth[nr, nc]-depth[row, col]) <= jump):
++                    connected[nr, nc] = True
++                    queue.append((nr, nc))
++        keep = connected
++        retained = int(np.count_nonzero(keep))
++        evidence.update(removed_by_connectivity=in_range_count-retained,
++                        retained_pixels=retained, retained_fraction=retained/count if count else 0.,
++                        output_depth_m=_distribution(depth[keep]))
++    if not np.any(keep):
++        evidence["rejection_reason"] = "no_selected_depth"
++        raise DepthSelectionError("segmentation contains no pixels with valid selected depth", evidence)
++    return (*np.nonzero(keep), evidence)

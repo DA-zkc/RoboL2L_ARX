@@ -1,0 +1,4 @@
+{
+  "source": "cap_harness/UPSTREAM.json",
+  "contracts": "identity-preserving compatibility re-exports; no duplicated type implementation"
+}

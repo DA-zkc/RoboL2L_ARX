@@ -1,0 +1,33 @@
+{
+  "realsense": {
+    "version": "2.58.1",
+    "backend": "RSUSB",
+    "python": "3.12",
+    "binding_sha256": "300a822c335e24000e8f3b39f91a40dfc31a9fcf13de5d08ab973408b901c3cd"
+  },
+  "orbbec": {
+    "version": "2.10.6"
+  },
+  "libfranka": {
+    "version": "0.19.0",
+    "linkage": "system library"
+  },
+  "note": "Native SDK distributions copied into this project; no runtime imports from old project or ASPIRE",
+  "franky": {
+    "version": "2.0.0",
+    "repository": "https://github.com/TimSchneider42/franky",
+    "commit": "f88f0e9b8f598d7c537b4e727e4411e67c95e017",
+    "patch": "patches/franky-station.patch",
+    "bridge": "native/franky_station.cpp",
+    "build": "scripts/build-franky.sh",
+    "libfranka": "0.19.0",
+    "installation": ".franka-player/native/python/franky",
+    "pybind11": "3.1.0"
+  },
+  "ruckig": {
+    "version": "0.17.3",
+    "repository": "https://github.com/pantor/ruckig",
+    "commit": "cb99a04ce488f83701aaee6efd9c9f0d36a3d43b",
+    "linkage": "static PIC in local franky binding"
+  }
+}

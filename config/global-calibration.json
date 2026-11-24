@@ -1,0 +1,154 @@
+{
+  "session_id": "435le-panel-20261115T085109.455338Z",
+  "date": "2026-11-15",
+  "status": "active_runtime_configuration",
+  "camera_serial": "CP4W863000KR",
+  "camera_frame": "color_optical",
+  "parent_frame": "base",
+  "units": "meters",
+  "T_base_camera": [
+    [
+      -0.0060064448926506475,
+      0.5067953452088192,
+      -0.8620454748413366,
+      1.0824172025522625
+    ],
+    [
+      0.9993384215939987,
+      0.03396463888305892,
+      0.01300470805357834,
+      -0.024936188907969167
+    ],
+    [
+      0.035869788761114185,
+      -0.8613970521079216,
+      -0.5066640670839169,
+      0.4466651401232865
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "T_base_Gemini_color": [
+    [
+      -0.0060064448926506475,
+      0.5067953452088192,
+      -0.8620454748413366,
+      1.0824172025522625
+    ],
+    [
+      0.9993384215939987,
+      0.03396463888305892,
+      0.01300470805357834,
+      -0.024936188907969167
+    ],
+    [
+      0.035869788761114185,
+      -0.8613970521079216,
+      -0.5066640670839169,
+      0.4466651401232865
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "T_EE_board": [
+    [
+      0.9954713609990993,
+      -0.09497583655922069,
+      -0.0040447373804968715,
+      -0.14112040799689307
+    ],
+    [
+      -0.09487771874040195,
+      -0.995290148623118,
+      0.019893178237490025,
+      0.1270126286848405
+    ],
+    [
+      -0.005915058513503511,
+      -0.01941933375910629,
+      -0.9997939295470513,
+      -0.09316745198732192
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "F_T_EE": [
+    [
+      0.7071067690849304,
+      0.7071067690849304,
+      0,
+      0
+    ],
+    [
+      -0.7071067690849304,
+      0.7071067690849304,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1,
+      0.10339999943971634
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "intrinsics": {
+    "width": 1280,
+    "height": 800,
+    "fx": 612.2145385742188,
+    "fy": 612.3009643554688,
+    "ppx": 637.9083251953125,
+    "ppy": 405.65167236328125,
+    "model": "brown_conrady",
+    "distortion_model_enum": 4,
+    "coeffs": [
+      -0.031611282378435135,
+      0.036432210355997086,
+      -1.4853402490189183e-06,
+      -5.647499710903503e-05,
+      -0.01263902336359024,
+      0,
+      0,
+      0
+    ]
+  },
+  "board_config": {
+    "type": "charuco",
+    "squares_x": 14,
+    "squares_y": 9,
+    "square_length_m": 0.02,
+    "marker_length_m": 0.015,
+    "dictionary": "DICT_5X5_100",
+    "legacy_pattern": false,
+    "measurement_source": "Square 20 mm and model CC300-20-15 confirmed by user 2026-11-13; nominal marker 15 mm inferred from model suffix, supersedes prior 14.9 mm manual measurement",
+    "dictionary_note": "Observed IDs 0-62 match this dictionary; larger nested dictionaries may also match. Standard board ordering verified by image homography.",
+    "model": "CC300-20-15",
+    "marker_size_source": "Model-code inference; manufacturer dimensional drawing not available"
+  },
+  "candidate_sha256": "522c22de02461725c013179f3b58869815e60edbec5f6d9964a96d39edd7cca8",
+  "fit_count": 12,
+  "fit_rms_px": 1.4607627477484193,
+  "source_archive": "archives/435le-panel-20261115T085109.455338Z.zip",
+  "note": "Robot base and global camera relocated; board remounted. Supersedes 2026-11-13 global extrinsic for the current setup. Independent consistency is not certified absolute accuracy. Not applied to unaligned depth coordinates.",
+  "deployed_at_utc": "20261115T091424.310473Z",
+  "source_parameters": "/home/solution/RoboL2L/projects/fr3_capx/config/hardware-parameters/gemini-CP4W863000KR/parameters.json",
+  "backup_directory": "/home/solution/RoboL2L/projects/fr3_capx/config/backups/global-camera-20261115T091424.310473Z"
+}

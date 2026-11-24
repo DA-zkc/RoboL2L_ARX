@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Franka Player · RoboL2L</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<aside><a class="brand" href="/"><span class="logo">R</span><span>RoboL2L<small>FRANKA / SINGLE ARM</small></span></a>
+<div class="aside-label" data-i="workspace"></div><button id="new-exp" class="primary full" data-i="newExp"></button>
+<div id="experiments" class="experiment-list"></div>
+<div class="aside-bottom"><span class="dot"></span><span data-i="loopback"></span><small data-i="noTraining"></small></div></aside>
+<main><header><div><div class="eyebrow" data-i="eyebrow"></div><h1 data-i="title"></h1></div><div class="head-actions"><span id="connection" class="badge"></span><button id="language">EN</button></div></header>
+<div class="notice"><span class="notice-icon">i</span><div><strong data-i="boundaryTitle"></strong><p data-i="boundaryText"></p></div></div>
+<section class="card" id="cap-card" hidden>
+<div class="section-title"><h3 data-i="capTitle"></h3><span class="badge" data-i="capReadOnly"></span></div>
+<p class="hint" data-i="capHint"></p>
+<div class="toolbar"><button id="cap-state" data-i="capState"></button><button id="cap-observe" data-i="capObserve"></button><button id="cap-plan" data-i="capPlan"></button></div>
+<div id="cap-images" class="cap-images"></div>
+<details><summary data-i="capProgramTitle"></summary><textarea id="cap-source" rows="7" spellcheck="false">def run(api):
+    state = api.get_robot_state()
+    return state</textarea><button id="cap-run" data-i="capRun"></button></details>
+<pre id="cap-result" aria-live="polite"></pre>
+</section>
+<section class="overview"><div><span class="eyebrow" data-i="current"></span><h2 id="exp-name"></h2><p id="exp-goal"></p></div><div class="stats"><div><small data-i="mode"></small><b id="mode"></b></div><div><small data-i="attempt"></small><b id="attempt">—</b></div><div><small data-i="actions"></small><b id="action-count">—</b></div></div></section>
+<section class="card flow-card"><div class="section-title"><h3 data-i="pipeline"></h3><span id="status" class="badge"></span></div><div id="flow" class="flow"></div><div id="branches" class="branches"></div><p class="hint" data-i="flowHint"></p>
+<div class="toolbar"><button id="start" class="primary" data-i="start"></button><button id="pause" data-i="pause"></button><button id="resume" data-i="resume"></button><button id="stop" class="danger" data-i="stop"></button><button id="next" data-i="next"></button></div>
+<div id="assistance" hidden><strong data-i="helpRequired"></strong><p id="help-reason"></p><label><span data-i="operatorNote"></span><textarea id="operator-note" rows="2"></textarea></label><button id="confirm-help" class="primary" data-i="confirmHelp"></button></div></section>
+<div class="grid"><section class="card"><div class="section-title"><h3 data-i="runtimeSettings"></h3><span class="muted" data-i="boundarySettings"></span></div>
+<form id="config-form"><label><span data-i="api"></span><input id="base_url" type="url" placeholder="https://…/v1"></label>
+<div class="form-grid"><label><span data-i="model"></span><input id="model" placeholder="model-id"></label><label><span data-i="reasoning"></span><select id="reasoning"><option>none</option><option>low</option><option>medium</option><option>high</option><option>xhigh</option></select></label></div>
+<div class="form-grid"><label><span data-i="keyEnv"></span><input id="api_key_env" value="ROBOT_MODEL_API_KEY"></label><label><span data-i="budget"></span><input id="max_actions" type="number" min="1" max="200" value="20"></label></div>
+<label><span data-i="station"></span><input id="station" placeholder="franka-station-id"></label><p class="hint" data-i="secretHint"></p><button id="save-config" type="submit" data-i="save"></button></form></section>
+<section class="card"><div class="section-title"><h3 data-i="guidance"></h3><span id="guidance-count" class="badge">0</span></div><p class="hint" data-i="guidanceHint"></p><div id="guidance"></div><div class="criteria"><span class="eyebrow" data-i="criteria"></span><p id="criteria"></p></div></section></div>
+<div class="grid bottom"><section class="card"><div class="section-title"><h3 data-i="evidence"></h3><button id="export" data-i="export"></button></div><div id="evidence" class="evidence"></div></section><section class="card"><div class="section-title"><h3 data-i="timeline"></h3><span class="muted" data-i="persistent"></span></div><div id="events" class="events"></div></section></div>
+<footer data-i="footer"></footer></main>
+<dialog id="new-dialog"><form id="new-form"><div class="section-title"><h2 data-i="loadTitle"></h2><button type="button" id="close-dialog" aria-label="Close">×</button></div><p class="hint" data-i="loadHint"></p>
+<label class="file"><span data-i="loadZIP"></span><input id="zip-file" type="file" accept=".zip,application/zip"></label><button id="load-zip" type="button" data-i="uploadZIP"></button><p class="hint" data-i="zipHint"></p>
+<label><span data-i="name"></span><input id="new-name" required maxlength="150"></label><label><span data-i="goal"></span><textarea id="new-goal" required rows="3"></textarea></label><label><span data-i="criteria"></span><textarea id="new-criteria" required rows="2"></textarea></label>
+<div class="form-grid"><label><span data-i="mode"></span><select id="new-mode"><option value="demo" data-i="demo"></option><option value="live" data-i="live"></option></select></label><label><span data-i="demoOutcome"></span><select id="demo-outcome"><option value="complete" data-i="complete"></option><option value="assist" data-i="assist"></option></select></label></div>
+<div class="form-grid"><label class="file"><span data-i="importAC"></span><input id="ac-file" type="file" accept=".md,.txt"></label><label class="file"><span data-i="importC"></span><input id="c-file" type="file" accept=".md,.txt"></label></div><label class="file"><span data-i="loadJSON"></span><input id="json-file" type="file" accept=".json"></label>
+<button class="primary full" type="submit" data-i="load"></button></form></dialog>
+<div id="toast" role="status" aria-live="polite"></div><script src="/app.js"></script><script src="/cap.js"></script></body></html>
