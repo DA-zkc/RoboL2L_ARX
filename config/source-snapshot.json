@@ -329,6 +329,24 @@
         "pyproject.toml",
         ".gitignore"
       ]
+    },
+    {
+      "date": "2026-11-26",
+      "source_base_commit": "88363c85757530aeaff1983216a715d1351366a7",
+      "includes_uncommitted_changes": true,
+      "scope": "Clarify ARX direct-target gripper completion; simplify speed guidance and stack experiment reference/intervention cards",
+      "source_files_sha256": {
+        "docs/arx-grasp-geometry.md": "64d68854c1419234c692ec62389396320103e104bb08c0db3f2faac8b4334230",
+        "robol2l_deploy/adapters/arx_gripper_feedback.py": "cdd08275f814f7878415089078efc552ca8206055c45f2a4a66f3ab2a6d706a0",
+        "robol2l_deploy/cap/api.py": "eb4616e3c4560543200ee7bcd531f9b0e601f109ef7e2eb6486e7688713c7fbd",
+        "robol2l_deploy/runtime.py": "5a68db42c20f4d1d1eafb50f3fffba55f80ed40b65a69e618ec44da9d0008206",
+        "robol2l_deploy/web/experiment.js": "40f20e8893127e0f6a9d7fee8774dcebe48564d214ff44253a5b55675f36c1df",
+        "robol2l_deploy/web/index.html": "c46efcc81785c3cf3f146d23a42dd8aa4bfb14c618802c11604528107a04129e",
+        "tests/test_arx_gripper_grasp.py": "5257af00d46b9502ce7ba567ea8c5e471f31f3c3c300dca4687b7b309f4477bc",
+        "tests/test_arx_native_policy.py": "b86d669efff426266ac1dc01fb3d75730f892df0e3df49374902537d9786a9bb",
+        "tests/test_experiment_speed_ui.js": "d4c0257b8fb6360abd8e8879e5bc1aa4412ba178e4b453153b965470d786d6bc",
+        "tests/test_arx_gripper_contract.py": "778adfc8ae2436913c3b1bdd02b4f5d88a7e7e1ebd2ee89508a13717c8944e1f"
+      }
     }
   ]
 }

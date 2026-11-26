@@ -28,6 +28,24 @@ class NativeQueryTests(unittest.TestCase):
             setattr(self.ctrl, name, MethodType(getattr(ArmController, name), self.ctrl))
         self.arm = SimpleNamespace(_ctrl=self.ctrl)
 
+    def test_direct_gripper_target_has_no_trajectory_before_measured_arrival(self):
+        from bimanual.core.model import get_arm_model
+        from bimanual.hardware.controller import ArmController
+        self.ctrl.model = get_arm_model({'type': 0})
+        self.ctrl._state_lock = RLock()
+        self.ctrl._reject_if_faulted = lambda *args: False
+        self.ctrl._gripper_target = self.ctrl._gripper_pos = 4.87
+        self.ctrl._gripper_free = False
+        for duration in (None, 1.):
+            with self.subTest(duration=duration):
+                result = ArmController.set_gripper_target(self.ctrl, .02, duration)
+                self.assertEqual(result, 0. if duration is None else duration)
+                self.assertEqual(self.ctrl._gripper_target, .02)
+                self.assertEqual(self.ctrl._gripper_pos, 4.87)
+                reference = query(self.arm, 'reference_status')
+                self.assertEqual(reference['gripper_finished'], duration is None)
+                self.assertFalse(reference['physical_arrival_verified'])
+
     def test_native_duration_and_path_use_native_limits_without_commanding(self):
         target = np.ones(6)*.1
         before = self.ctrl._q_target.copy()

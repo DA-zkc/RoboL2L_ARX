@@ -493,31 +493,9 @@
     $('exp-speed-label').textContent = arx
       ? '4 · 推荐速度系数（相对默认） / Recommended speed multiplier'
       : '4 · 推荐运行速度 / Recommended speed factor';
-    if (arx) {
-      const active = !['idle', 'completed', 'exhausted', 'stopped'].includes(experiment.status || 'idle');
-      const baseline = active && Number.isFinite(experiment.speed_default_factor)
-        ? experiment.speed_default_factor : caps.motion_speed?.default_speed_factor;
-      const input = Number(active ? experiment.speed_factor : speed.value);
-      const recommended = active && Number.isFinite(experiment.speed_recommendation_factor)
-        ? experiment.speed_recommendation_factor : input * baseline;
-      const fmt = value => Number(value.toPrecision(8)).toString();
-      const legacy = active && !Number.isFinite(experiment.speed_recommendation_factor);
-      const calculation = legacy
-        ? `本轮旧记录的推荐倍率为 ${fmt(experiment.speed_factor)}，保持原值。 / This older run retains its original recommendation. `
-        : Number.isFinite(baseline) && Number.isFinite(recommended) && input > 0 && recommended > 0
-          ? `输入 ${fmt(input)} × 默认倍率 ${fmt(baseline)} = 模型收到的推荐倍率 ${fmt(recommended)}。 / Input ${fmt(input)} × default ${fmt(baseline)} = recommended factor ${fmt(recommended)}. `
-          : '输入正数后，将按“输入值 × 当前默认倍率”计算。 / Enter a positive multiplier; recommendation = input × configured default. ';
-      const reset = Number.isFinite(recommended) && recommended > 0
-        ? `网页自动复位也使用输入系数 × 默认倍率，实际复位倍率为 ${fmt(recommended)}；新实验沿用开始时保存的默认值，旧实验使用当前默认值。`
-          + ` / Automatic arm return uses input × default: ${fmt(recommended)}. New runs retain their starting default; older runs use the current default. `
-        : '网页自动复位同样使用输入系数 × 默认倍率。 / Automatic arm return also uses input × default. ';
-      speedNote.textContent = calculation + reset
-        + '倍率 1 对应 SDK 默认运动时序；0.1 约为十倍运动时长，越小越慢，不是 rad/s。对模型仅为建议，模型可依据任务调整；自动复位则按上述倍率规划，不改变夹爪速度。'
-        + ' / Factor 1 uses SDK timing; 0.1 gives approximately ten times the motion duration. Smaller is slower, not rad/s. Advisory for the model; arm return is planned with the factor above. Gripper speed is unchanged.';
-    } else {
-      speedNote.textContent = '这是给 Agent 的推荐起始速度倍率，由 Agent 结合任务选择实际速度，不作为主机硬性限速。取值范围：0 < s ≤ 1。'
-        + ' / Suggested starting speed for the agent, not a host-enforced cap. Range: 0 < s ≤ 1.';
-    }
+    speedNote.textContent = arx
+      ? '取值 > 0；1 为默认速度，0.1 约为默认速度的 1/10，越小越慢。 / Value > 0; 1 = default speed, 0.1 ≈ 1/10 speed; smaller is slower.'
+      : '取值 0 < s ≤ 1；1 为默认速度，越小越慢。 / Range: 0 < s ≤ 1; 1 = default speed; smaller is slower.';
   }
 
   function renderMachineStatus() {

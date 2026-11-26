@@ -76,6 +76,27 @@ class GraspFeedbackTests(unittest.TestCase):
             self.assertIsNone(row['target_reached'])
         self.assertFalse(self.rt.faulted)
 
+    def test_direct_target_can_return_while_fingers_are_still_closing(self):
+        # Synthetic feedback reproduces the contract, not a physical grasp.
+        arm = self.arms['left']
+        initial = arm.gripper
+        def submit(target, duration):
+            arm.commands.append(('gripper', target, duration))
+            arm.gripper = initial - .01
+            return True
+        with patch.object(arm, 'set_gripper_pos', side_effect=submit), \
+                patch.object(arm, 'get_gripper_vel', return_value=-.2):
+            result = self.rt.close_gripper(arm='left')
+        self.assertTrue(result.ok, result.error)
+        row = result.diagnostics['grippers']['left']
+        self.assertEqual(row['completion'], 'sdk_reference_finished')
+        self.assertGreater(row['error_rad'], 1.)
+        self.assertEqual(row['measured_velocity_rad_s'], -.2)
+        self.assertFalse(row['grasp_verified'] or row['physical_arrival_verified'])
+        self.assertIsNone(row['target_reached'])
+        self.assertEqual(self.clock.now, 0.)  # No new dwell or stability gate.
+        self.assertEqual(arm.commands, [('gripper', .02, None)])
+
     def test_native_reference_completion_not_project_timer_controls_return(self):
         self.blocked()
         original = self.arms['left'].native_query

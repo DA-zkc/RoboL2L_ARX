@@ -8,6 +8,7 @@ from cap_harness.registry import ToolRegistry
 from .. import contracts as c
 from ..errors import ApiError, ErrorCode
 from ..runtime import OutcomeUnknown, fingerprint
+from ..adapters.arx_gripper_feedback import ARX_GRASP_SEMANTICS
 from .speed_guidance import ARX_SPEED_GUIDANCE
 
 CONSTRUCTORS = {name:getattr(c,name) for name in (
@@ -233,7 +234,7 @@ class PublicAPI:
             description.update(
                 ik_diagnostics='ARX solve_ik reports diagnostics.sdk_converged and diagnostics.sdk_residual on both solver success and nonconvergence. sdk_residual is the unchanged native solver residual, not a Cartesian position error in metres or physical arrival verification. Invalid inputs rejected before the solver have no solver residual.',
                 motion_speed_guidance=ARX_SPEED_GUIDANCE,
-                grasp_semantics='Contact-grasp inference and native grasp confirmation are unavailable. Use calibrated position commands when advertised and verify a grasp visually.',
+                grasp_semantics=ARX_GRASP_SEMANTICS,
                 step_semantics='This backend uses point-to-point moves via move_to_joints or move_to_pose.',
                 execution_semantics='Plan from the latest measured state. The ARX SDK accepts one six-joint target with a duration. The station reports measured deviation and SDK reference completion. Physical arrival is checked only against caller-supplied tolerances. Scene collision checking is unavailable. Uncalibrated gripper state is a normalized encoder fraction.')
         if self.environment.embodiment == 'arx_x5_2023_dual':
@@ -241,8 +242,7 @@ class PublicAPI:
                 observation_semantics='Both arms provide encoders and FK in their own base frames. Configured RGB-D cameras share frames with previews and recording. Camera poses are identities in their own optical frames. Robot-base camera extrinsics are unavailable.',
                 execution_semantics='Use move_to_joints(target, arm="left" or "right") or move_synchronized({"left": six_joints, "right": six_joints}). Use left_base/right_base poses for solve_ik, plan_motion and move_to_pose. Native reference trajectories execute in order; measured error is reported. Both commands use one station owner. Synchronization is host-timed point-to-point with measured submission skew. Inspect diagnostics.per_arm and final_errors. Inspect collision_checked and collision_missing. MotionStrategy(ik_solver="station",pose_planner="station",require_collision_check=True) requires an available inter-arm model check.',
                 step_semantics='One CaP control-period joint target for left, right or both; the SDK selects feasible execution timing. Check the returned observation.',
-                home_semantics='go_home() or both returns both arms to station Home. Named arms return individually. Experiment reset uses its recorded initial snapshot.',
-                grasp_semantics='On each calibrated side 0 commands the calibrated closed target and 1 the open target. Completion reports the SDK reference status, measured angle and velocity. target_reached is unspecified and grasp_verified is false: the interface has no contact or object-possession sensor. The caller interprets the feedback and scene evidence.')
+                home_semantics='go_home() or both returns both arms to station Home. Named arms return individually. Experiment reset uses its recorded initial snapshot.')
             if capabilities['camera_extrinsics_calibrated']:
                 description.update(
                     units='Metres, radians, seconds, quaternion wxyz. Both measured end-effector poses use left_base.',

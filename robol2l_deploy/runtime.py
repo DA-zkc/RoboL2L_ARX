@@ -14,6 +14,7 @@ import numpy as np
 from .contracts import SynchronizedPlanResult, ExecutionResult, PlanResult, IKResult, Pose, Trajectory, SynchronizedTrajectory
 from .errors import ApiError, ErrorCode
 from .execution_feedback import stops_runtime, feedback, execution_value, endpoint_accuracy, motion_not_started
+from .adapters.arx_gripper_feedback import ARX_GRIPPER_TIMING
 
 
 def public(value):
@@ -236,6 +237,7 @@ class StationRuntime:
                     home=self.home, control_period_s=self.control_period_s,
                     execution_requirements='motion enabled, not paused, no unresolved device failure',
                     trajectory_gripper_timing=('unavailable' if 'set_gripper' in unsupported else
+                                               ARX_GRIPPER_TIMING if arx else
                                                'blocking hand commands at change waypoints; adds dwell to arm timing'))
 
     def get_robot_state(self):
