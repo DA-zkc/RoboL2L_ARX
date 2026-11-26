@@ -30,6 +30,7 @@ SIDES = ('left', 'right')
 
 
 class DualARXStation:
+    supports_execution_abort = True
     synthetic = False
     model_name = 'X5-2023 pair'
     end_effector_link = 'link6'
@@ -208,6 +209,7 @@ class DualARXStation:
         return dict(mode='resident_arx_owner_v1' if self.owner_client else 'in_process',
                     disconnect_requires_support_confirmation=not bool(self.owner_client),
                     maintenance_requires_support_confirmation=True,
+                    native_query_version=getattr(self.owner_client, 'native_query_version', 0),
                     owner_instance=self.owner_client.instance if self.owner_client else None)
 
     def prepare_disconnect(self, *, hardware_supported=False):
@@ -444,11 +446,12 @@ class DualARXStation:
         return {side: self._target(side, recorded[side], np.asarray(recorded[side]), adjustments)
                 for side in SIDES}
 
-    def plan_recorded_return(self, state, recorded, arm):
+    def plan_recorded_return(self, state, recorded, arm, *, speed_factor=None):
         corrections = []
         goals = self.reset_targets(recorded, corrections)
         selected = goals if arm == 'both' else {arm: goals[arm]}
-        trajectory, payload = self._plan(state, selected, synchronized=arm == 'both')
+        trajectory, payload = self._plan(state, selected, synchronized=arm == 'both',
+                                         speed_factor=speed_factor)
         payload['boundary_adjustments'].extend(item for item in corrections if item['arm'] in selected)
         return trajectory, payload
 
@@ -572,7 +575,7 @@ class DualARXStation:
                 raise ValueError(f'{side}: gripper_position_outside_0_1')
         self.get_robot_state()
 
-    def move_hands(self, commands, permitted):
+    def move_hands(self, commands, permitted, *, abort_requested=lambda: False):
         self.check_hands(commands)
         receipts = {side: dict(dispatch='not_sent') for side in commands}
         phase = 'submission'
@@ -594,6 +597,9 @@ class DualARXStation:
                 row['dispatch'] = 'accepted'
             phase = 'feedback'
             while True:
+                if abort_requested():
+                    raise ApiError(ErrorCode.CANCELLED, 'operator_ended_active_execution', recoverable=False,
+                                   details={'operator_requested': True, 'completion_verified': False})
                 pending = []
                 for side, row in receipts.items():
                     failed_sides = [side]
@@ -619,7 +625,8 @@ class DualARXStation:
         except Exception as exc:
             for side, unit in self.arms.items():
                 receipts.setdefault(side, {})['support'] = preserve_support(unit, cancel_motion=False)
-            return ExecutionResult(False, 0, error=ApiError(ErrorCode.CONTROLLER_FAILED, str(exc), recoverable=False),
+            return ExecutionResult(False, 0, error=exc if isinstance(exc, ApiError) else
+                                   ApiError(ErrorCode.CONTROLLER_FAILED, str(exc), recoverable=False),
                                    diagnostics=dict(grippers=receipts, phase=phase, failed_arms=failed_sides,
                                                     outcome='unverified', steps_count_known=False))
         return ExecutionResult(True, 1, diagnostics=dict(grippers=receipts))
@@ -647,7 +654,8 @@ class DualARXStation:
         return replace(execution, ok=ok, status=None, error=error, final_errors=errors,
                        diagnostics=dict(execution.diagnostics, goal_checks=checks))
 
-    def execute(self, plan, trajectory, *, permitted=lambda: True, targets=None, tolerance=None):
+    def execute(self, plan, trajectory, *, permitted=lambda: True, targets=None, tolerance=None,
+                abort_requested=lambda: False):
         completed = 0
         receipts = []
         last = None
@@ -665,7 +673,7 @@ class DualARXStation:
         def move_hands(commands, index):
             if not commands:
                 return None
-            result = self.move_hands(commands, permitted)
+            result = self.move_hands(commands, permitted, abort_requested=abort_requested)
             receipts.append(dict(waypoint=index, grippers=result.diagnostics.get('grippers', {}), ok=result.ok))
             return None if result.ok else result
 
@@ -683,7 +691,8 @@ class DualARXStation:
                 completed = 1
             final_stage = stage is plan['stages'][-1]
             last = self._execute_segment(stage, targets=targets if final_stage else None,
-                                         tolerance=tolerance if final_stage else None)
+                                         tolerance=tolerance if final_stage else None,
+                                         abort_requested=abort_requested)
             receipts.append(dict(waypoint=index, per_arm=last.diagnostics.get('per_arm', {}),
                                  ok=last.ok))
             if not last.ok:
@@ -696,7 +705,7 @@ class DualARXStation:
             completed = index + 1
         return finish(last, plan['stages'][-1]['waypoint'])
 
-    def _execute_segment(self, plan, *, targets=None, tolerance=None):
+    def _execute_segment(self, plan, *, targets=None, tolerance=None, abort_requested=lambda: False):
         if not self.allow_motion:
             return failure(ErrorCode.SAFETY_INTERLOCK, 'arx_motion_disabled')
         # Native set_joint_positions queues a duration-based motion and returns.
@@ -734,6 +743,9 @@ class DualARXStation:
                 receipts[side]['dispatch'] = 'accepted'
             phase = 'feedback'
             while True:
+                if abort_requested():
+                    raise ApiError(ErrorCode.CANCELLED, 'operator_ended_active_execution', recoverable=False,
+                                   details={'operator_requested': True, 'completion_verified': False})
                 pending = []
                 for side, unit in self.arms.items():
                     failed_sides = [side]
@@ -753,6 +765,9 @@ class DualARXStation:
                     if receipts[side]['dispatch'] == 'accepted':
                         reference = native_query(unit.driver.arm, 'reference_status')
                         receipts[side]['native_reference'] = reference
+                        if reference.get('reference_error'):
+                            raise ApiError(ErrorCode.CONTROLLER_FAILED, f'{side}: arx_native_trajectory_error',
+                                           recoverable=False, details=reference['reference_error'])
                         if not reference['joints_finished']:
                             pending.append(side)
                 if not pending:
@@ -771,6 +786,8 @@ class DualARXStation:
                     receipts[side]['dispatch'] in ('accepted', 'unknown') or
                     side in failed_sides and phase == 'feedback'))
             partial = any(r['dispatch'] == 'accepted' for r in receipts.values()) and phase == 'submission'
-            return ExecutionResult(False, 0, error=ApiError(ErrorCode.CONTROLLER_FAILED, str(error), recoverable=False),
-                                   diagnostics=dict(outcome='partial_dispatch' if partial else 'unverified',
+            cancelled = isinstance(error, ApiError) and error.code == ErrorCode.CANCELLED
+            return ExecutionResult(False, 0, error=error if isinstance(error, ApiError) else
+                                   ApiError(ErrorCode.CONTROLLER_FAILED, str(error), recoverable=False),
+                                   diagnostics=dict(outcome='operator_cancelled_unverified' if cancelled else 'partial_dispatch' if partial else 'unverified',
                                                     phase=phase, failed_arms=failed_sides, per_arm=receipts, steps_count_known=False))

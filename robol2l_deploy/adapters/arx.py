@@ -325,6 +325,9 @@ class ARXStationAdapter:
             while True:
                 state = self.get_robot_state()
                 reference = native_query(arm, 'reference_status')
+                if channel == 'joints' and reference.get('reference_error'):
+                    raise ApiError(ErrorCode.CONTROLLER_FAILED, 'arx_native_trajectory_error',
+                                   recoverable=False, details=reference['reference_error'])
                 if reference[channel + '_finished']:
                     return state, time.monotonic() - started
                 time.sleep(TIME_QUANTUM_S)

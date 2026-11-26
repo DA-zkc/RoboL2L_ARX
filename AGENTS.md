@@ -10,3 +10,5 @@ This repository is the ARX physical deployment source snapshot, not the workstat
 - Preserve upstream notices and hashes; keep SDK/model dependencies separate from runtime receipts and secrets.
 - Use Mock/software tests by default. Do not run check_* hardware probes as ordinary unit tests.
 - Do not publish .env, model keys, runtime archives, calibration image captures, videos, weights or virtual environments.
+
+- Preserve Code as Policy: the model generates a complete program, the program executes with tools and its own branches/loops, and the model reviews afterward. get_observation does not call a decision model.

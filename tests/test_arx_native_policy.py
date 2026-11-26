@@ -67,6 +67,10 @@ class AdapterPolicyTests(unittest.TestCase):
         self.assertNotIn('Use 0.05', system)
         self.assertNotIn('0<s<=1', system)
         self.assertIn('installed SDK planner timing', system)
+        self.assertNotIn('Prefer plan_motion with\nstrategy=None', system)
+        self.assertIn('s=0.1 gives approximately\n10 times the SDK duration', system)
+        self.assertIn('does NOT inherit experiment.operator_speed_recommendation', system)
+        self.assertIn('Smaller positive s means SLOWER', api.describe()['motion_speed_guidance'])
 
     def test_native_short_duration_and_long_explicit_duration(self):
         adapter = self.fixture.adapter
@@ -127,14 +131,83 @@ class ExperimentPolicyTests(unittest.TestCase):
 
     def test_arx_recommendation_is_serialized_without_clamping(self):
         import json
-        for speed in (.02, 1.25):
+        for speed in (.02, .1, 1.25):
             self.controller.state['speed_factor'] = speed
-            request, _ = self.controller.build_request(self.fixture.runtime.get_observation(), 'generate')
-            sent = json.loads(request[1]['content'][0]['text'])
-            advice = sent['experiment']['operator_speed_recommendation']
-            self.assertEqual(advice['time_dilation_factor'], speed)
+            self.controller.state['speed_recommendation_factor'] = speed
+            for phase in ('generate', 'review'):
+                request, _ = self.controller.build_request(self.fixture.runtime.get_observation(), phase)
+                sent = json.loads(request[1]['content'][0]['text'])
+                advice = sent['experiment']['operator_speed_recommendation']
+                self.assertEqual(advice['time_dilation_factor'], speed)
+                self.assertFalse(advice['enforced_by_host'])
+                self.assertIn('advisory, not a host-enforced cap', request[0]['content'])
+                self.assertIn('0.1 means slower', request[0]['content'])
+                self.assertIn('strategy=None does not inherit this recommendation', request[0]['content'])
+
+    def test_recommendation_multiplies_frozen_default_exactly_once(self):
+        import json
+        self.controller.end(self.controller.state['session_id'])
+        with patch.object(self.controller, '_cycle'), patch.object(self.fixture.runtime.adapter, 'describe',
+                return_value={'embodiment':'arx_x5_2023_dual', 'motion_speed':{'default_speed_factor':.4}}):
+            self.controller.start('Mock task', 'Mock criteria', True, speed_factor=.25)
+            self.fixture.wait()
+        self.assertEqual(self.controller.state['speed_factor'], .25)
+        self.assertEqual(self.controller.state['speed_default_factor'], .4)
+        for phase in ('generate', 'review'):
+            request, _ = self.controller.build_request(self.fixture.runtime.get_observation(), phase)
+            advice = json.loads(request[1]['content'][0]['text'])['experiment']['operator_speed_recommendation']
+            self.assertEqual(advice['time_dilation_factor'], .1)
+            self.assertEqual(advice['input_multiplier'], .25)
+            self.assertEqual(advice['default_speed_factor'], .4)
             self.assertFalse(advice['enforced_by_host'])
-            self.assertIn('advisory, not a host-enforced cap', request[0]['content'])
+        # Legacy recommendations stay absolute rather than being reinterpreted.
+        self.controller.state.pop('speed_default_factor')
+        self.controller.state.pop('speed_recommendation_factor')
+        _, context = self.controller.build_request(self.fixture.runtime.get_observation(), 'review')
+        self.assertEqual(context['experiment']['operator_speed_recommendation']['time_dilation_factor'], .25)
+
+    def test_all_experiment_return_paths_use_frozen_product(self):
+        from robol2l_deploy.contracts import ExecutionResult
+        from robol2l_deploy.errors import ApiError, ErrorCode
+        self.controller.state.update(speed_factor=.25, speed_default_factor=.4,
+                                     speed_recommendation_factor=.1)
+        runtime = self.fixture.runtime
+        with patch.object(runtime.adapter, 'plan_recorded_return', create=True), \
+             patch.object(runtime, 'return_recorded_joints', return_value=ExecutionResult(False, 0, error=ApiError(ErrorCode.PLANNING_FAILED, 'fixture'))) as move:
+            for automatic in (False, True):
+                self.controller._restore_initial(automatic=automatic)
+                self.assertEqual(move.call_args.kwargs['speed_factor'], .1)
+            self.controller.return_to_initial(self.controller.state['session_id'], True)
+            self.fixture.wait()
+            self.assertEqual(move.call_count, 3)
+            self.assertEqual(move.call_args.kwargs['speed_factor'], .1)
+        self.assertEqual(runtime.adapter.executions, 0)
+
+    def test_legacy_return_multiplies_current_default_without_rewriting_model_advice(self):
+        self.controller.state.pop('speed_default_factor')
+        self.controller.state.pop('speed_recommendation_factor')
+        self.controller.state['speed_factor'] = .25
+        with patch.object(self.fixture.runtime.adapter, 'describe',
+                          return_value={'motion_speed': {'default_speed_factor': .4}}):
+            self.assertEqual(self.controller._return_speed_options(), {'speed_factor': .1})
+        self.assertEqual(self.controller.state['speed_factor'], .25)
+        self.assertNotIn('speed_recommendation_factor', self.controller.state)
+
+    def test_end_while_busy_requests_abort_and_finishes_without_dispatch(self):
+        from threading import Event
+        entered = Event()
+        self.fixture.runtime.adapter.supports_execution_abort = True
+        self.fixture.runtime.faulted = True
+        def wait_for_end():
+            entered.set()
+            self.assertTrue(self.fixture.runtime._execution_abort.wait(2))
+        self.controller._launch(wait_for_end)
+        self.assertTrue(entered.wait(2))
+        self.controller.end(self.controller.state['session_id'])
+        state = self.fixture.wait()
+        self.assertEqual(state['status'], 'stopped')
+        self.assertTrue(self.controller.stop.is_set())
+        self.assertTrue(self.fixture.runtime.faulted)
 
     def test_previously_over_budget_record_only_reviews_without_dispatch(self):
         self.controller.state['attempts'] = 11

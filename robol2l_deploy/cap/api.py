@@ -8,6 +8,7 @@ from cap_harness.registry import ToolRegistry
 from .. import contracts as c
 from ..errors import ApiError, ErrorCode
 from ..runtime import OutcomeUnknown, fingerprint
+from .speed_guidance import ARX_SPEED_GUIDANCE
 
 CONSTRUCTORS = {name:getattr(c,name) for name in (
     'Pose','MotionStrategy','ArmCommand','RobotAction','Trajectory','SynchronizedTrajectory')}
@@ -231,7 +232,7 @@ class PublicAPI:
         if self.environment.embodiment in ('arx_x5_2023', 'arx_x5_2023_dual'):
             description.update(
                 ik_diagnostics='ARX solve_ik reports diagnostics.sdk_converged and diagnostics.sdk_residual on both solver success and nonconvergence. sdk_residual is the unchanged native solver residual, not a Cartesian position error in metres or physical arrival verification. Invalid inputs rejected before the solver have no solver residual.',
-                motion_speed_guidance='ARX uses its installed SDK planner and native limits. No project joint-speed cap or default slowdown. An explicitly selected positive speed factor scales the requested duration; the SDK still determines feasible motion. Read the plan duration. This parameter is a CaP adapter convention, not an ARX SDK speed-factor parameter.',
+                motion_speed_guidance=ARX_SPEED_GUIDANCE,
                 grasp_semantics='Contact-grasp inference and native grasp confirmation are unavailable. Use calibrated position commands when advertised and verify a grasp visually.',
                 step_semantics='This backend uses point-to-point moves via move_to_joints or move_to_pose.',
                 execution_semantics='Plan from the latest measured state. The ARX SDK accepts one six-joint target with a duration. The station reports measured deviation and SDK reference completion. Physical arrival is checked only against caller-supplied tolerances. Scene collision checking is unavailable. Uncalibrated gripper state is a normalized encoder fraction.')

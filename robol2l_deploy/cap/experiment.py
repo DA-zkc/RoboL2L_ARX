@@ -17,6 +17,7 @@ from .program import ProgramExecutor, compact
 from .model import messages
 from .session import decision
 from .storage import write_json
+from .request_evidence import record_model_call
 
 TERMINAL = {'completed', 'exhausted', 'stopped'}
 WAITING = {'waiting_reset', 'paused', 'interrupted', 'waiting_operator', 'error'}
@@ -246,6 +247,9 @@ class ExperimentController:
                           error_category='model_configuration' if reason.startswith('model_configuration_error_') else 'model_protocol' if reason == 'model_assistance_protocol_error' else 'model_service' if reason.startswith(('model_request_', 'model_transport_')) else 'execution_or_service')
             finally:
                 self._revoke()
+                if self.state.get('end_requested'):
+                    self.step('END')
+                    self.save('stopped', reason='operator_ended_experiment', pending=None)
         self.thread = threading.Thread(target=work, daemon=True)
         self.thread.start()
         return {'accepted': True, 'session_id': self.state['session_id']}
@@ -301,6 +305,19 @@ class ExperimentController:
                 raise ValueError('positive_finite_speed_factor_required' if self.is_arx
                                  else 'speed_factor_must_be_above_0_and_at_most_1')
             model = self.model_factory()  # Validate settings before capturing an experiment.
+            speed_fields = {}
+            if self.is_arx:
+                default = self.runtime.adapter.describe().get('motion_speed', {}).get('default_speed_factor', 1.)
+                if (isinstance(default, bool) or not isinstance(default, (int, float))
+                        or not math.isfinite(default) or default <= 0):
+                    raise ValueError('invalid_configured_default_speed_factor')
+                recommended = speed * default
+                if not math.isfinite(recommended) or recommended <= 0:
+                    raise ValueError('positive_finite_recommended_speed_required')
+                # Freeze this experiment's baseline; old records retain their
+                # original absolute recommendation without being rescaled.
+                speed_fields = dict(speed_default_factor=float(default),
+                                    speed_recommendation_factor=float(recommended))
             if getattr(model, 'label', '') == 'feedback_fixture_not_llm' and self.runtime.adapter.synthetic:
                 task_metadata = {'target_position_m': [0, 0, .31], 'gripper_position': .5}
             # Last, so a rejected model or form leaves the station exactly as it was.
@@ -314,7 +331,7 @@ class ExperimentController:
                 attempts=0, versions=[], history=[], events=[], pending=None, steps=[],
                 interventions=[dict(time=time.time(), kind='human_started_experiment', fault_acknowledged=True,
                                     acknowledged_robot_state=acknowledged)] if acknowledged else [],
-                speed_factor=float(speed), record_cameras=cameras, tags=[],
+                speed_factor=float(speed), **speed_fields, record_cameras=cameras, tags=[],
                 model=getattr(model, 'settings', {'model': model.label}), task_metadata=task_metadata or {})
             self.save('capturing')
             for node in ('START', 'SETUP', 'CLICK'): self.step(node)
@@ -422,9 +439,13 @@ class ExperimentController:
             end = policy.index('Record your reasoning', start)
             policy = policy[:start] + (
                 'SPEED: experiment.operator_speed_recommendation carries the operator\'s suggested '
-                'starting time_dilation_factor. It is advisory, not a host-enforced cap. '
-                'Choose the actual speed for the task and explain your choice. '
-                'ARX motion duration is planned by the SDK.\n\n') + policy[end:]
+                'starting time_dilation_factor, already computed as the input multiplier '
+                'times the configured default speed factor. Do not multiply it again. '
+                'It is advisory, not a host-enforced cap. '
+                'Use the recommendation as the starting choice, explicitly pass the chosen '
+                'factor in MotionStrategy for each plan, and explain any departure. '
+                'For ARX, 0.1 means slower (approximately ten times the SDK duration), '
+                'not a shorter duration. strategy=None does not inherit this recommendation.\n\n') + policy[end:]
         request[0]['content'] += policy
         context = json.loads(request[1]['content'][0]['text'])
         context['experiment'] = dict(phase=phase, attempts=self.state['attempts'], remaining=max(0, self.maximum_attempts-self.state['attempts']),
@@ -447,6 +468,14 @@ class ExperimentController:
                                          enforced_by_host=False, native_domain='0<s<=1'))
         if self.is_arx:
             advice = context['experiment']['operator_speed_recommendation']
+            if 'speed_recommendation_factor' in self.state:
+                advice.update(time_dilation_factor=self.state['speed_recommendation_factor'],
+                              input_multiplier=self.state['speed_factor'],
+                              default_speed_factor=self.state['speed_default_factor'],
+                              formula='input_multiplier * default_speed_factor',
+                              meaning='computed recommended speed factor; pass time_dilation_factor directly, do not multiply it again')
+            else:
+                advice['meaning'] = 'legacy absolute recommended speed factor, not rescaled'
             advice['native_domain'] = 'positive finite multiplier; duration planned by the SDK'
             advice.pop('go_lower_for', None)
         continuation = copy.deepcopy(self.state.get('operator_continuation'))
@@ -476,7 +505,8 @@ class ExperimentController:
         while self.is_arx or retry < 3:
             retry += 1
             try:
-                value = decision(model.decide(request), extra=DECISION_FIELDS)
+                value = decision(record_model_call(self.folder, model, request,
+                    phase=phase, attempts=self.state['attempts'], retry=retry), extra=DECISION_FIELDS)
                 if value['kind'] == 'assist' and not self.is_arx:
                     if value.get('assist_type') not in EXTERNAL_ASSISTANCE or not value.get('assist_evidence', '').strip():
                         raise AssistanceProtocolError(
@@ -787,6 +817,19 @@ class ExperimentController:
                     self._cycle()
             return self._launch(resume)
 
+    def _return_speed_options(self):
+        if not self.is_arx:
+            return {}
+        factor = self.state.get('speed_recommendation_factor')
+        if factor is None:
+            # Older experiments have no frozen baseline. Apply the user's
+            # reset rule without rewriting their historical model advice.
+            default = self.runtime.adapter.describe().get('motion_speed', {}).get('default_speed_factor', 1.)
+            factor = self.state['speed_factor'] * default
+        if isinstance(factor, bool) or not isinstance(factor, (int, float)) or not math.isfinite(factor) or factor <= 0:
+            raise ValueError('positive_finite_return_speed_required')
+        return {'speed_factor': float(factor)}
+
     def _restore_initial(self, *, automatic=False):
         """Shared automatic/manual return. Never clear faults or pause automatically."""
         self.check_session(self.state['session_id'])
@@ -812,7 +855,7 @@ class ExperimentController:
                         self.save('waiting_reset', reason='scene_changed_before_automatic_reset')
                         return False
                 if hasattr(self.runtime.adapter, 'plan_recorded_return'):
-                    result = self.runtime.return_recorded_joints(targets)
+                    result = self.runtime.return_recorded_joints(targets, **self._return_speed_options())
                 else:
                     plan = tools['plan_motion'](targets['primary']) if set(targets) == {'primary'} else tools['plan_synchronized_motion'](targets)
                     result = tools['execute_trajectory'](plan.trajectory) if plan.ok and not self.stop.is_set() else plan
@@ -864,7 +907,7 @@ class ExperimentController:
                     if initial['device_binding'] != self.runtime.adapter.device_binding():
                         raise ValueError('experiment_device_changed')
                     if hasattr(self.runtime.adapter, 'plan_recorded_return'):
-                        result = self.runtime.return_recorded_joints(targets)
+                        result = self.runtime.return_recorded_joints(targets, **self._return_speed_options())
                     else:
                         plan = tools['plan_motion'](targets['primary']) if set(targets) == {'primary'} else tools['plan_synchronized_motion'](targets)
                         result = tools['execute_trajectory'](plan.trajectory) if plan.ok and not self.stop.is_set() else plan
@@ -886,7 +929,16 @@ class ExperimentController:
         with self.lock:
             if not self.state or session_id != self.state['session_id']: raise ValueError('experiment_session_changed')
             if self.state['status'] in TERMINAL: raise ValueError('experiment_finished')
-            if self.busy(): raise ValueError('pause_and_wait_before_ending')
+            if self.busy():
+                if not getattr(self.runtime.adapter, 'supports_execution_abort', False):
+                    raise ValueError('pause_and_wait_before_ending')
+                if not self.state.get('end_requested'):
+                    self.state['interventions'].append(dict(time=time.time(), kind='human_requested_experiment_end'))
+                    self.state['end_requested'] = True
+                    self.stop.set()
+                    self.runtime.request_execution_abort()
+                    self.save(reason='operator_end_requested_waiting_for_failure_receipt')
+                return
             self.state['interventions'].append(dict(time=time.time(), kind='human_ended_experiment'))
             self.step('END')
             self.save('stopped', pending=None)

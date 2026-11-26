@@ -114,4 +114,3 @@ class OperatorContinuationTests(unittest.TestCase):
         self.assertNotIn('operator_continuation', self.controller.state)
         self.assertTrue(self.controller._restore_initial(automatic=True))
         self.assertNotIn('operator_continuation', self.controller.state)
-

@@ -45,6 +45,61 @@ class DualARXTests(unittest.TestCase):
         self.right = self.station.arms['right'].driver.arm
         self.targets = {'left': wrist(.02), 'right': wrist(-.02)}
 
+    def test_public_speed_factor_point_one_slows_both_arms_without_changing_default(self):
+        from robol2l_deploy.cap.api import PublicAPI
+        from robol2l_deploy.cap.tasks import MockReachTask
+        from dataclasses import replace
+        from robol2l_deploy.contracts import MotionStrategy
+        from robol2l_deploy.adapters.arx import TIME_QUANTUM_S
+        api = PublicAPI(self.runtime, MockReachTask.context)
+        tools = api.tools()
+        strategy = MotionStrategy(ik_solver='station', pose_planner='station',
+                                  time_dilation_factor=.1)
+        # Use actual public planning paths with synthetic devices, never execute.
+        # This covers the factor's direction and propagation, not just prompt text.
+        for arm in ('left', 'right'):
+            pose = self.station.get_robot_state().end_effector_poses[arm]
+            pose = replace(pose, position=np.asarray(pose.position) + [.2, 0, 0])
+            for goal in (wrist(.2), pose):
+                default = tools['plan_motion'](goal, arm=arm, strategy=None)
+                slow = tools['plan_motion'](goal, arm=arm, strategy=strategy)
+                again = tools['plan_motion'](goal, arm=arm, strategy=None)
+                for plan in (default, slow, again):
+                    self.assertTrue(plan.ok, plan.error)
+                self.assertEqual(slow.diagnostics['speed_factor'], .1)
+                # Each plan rounds separately; multiplying a rounded default
+                # can differ by up to ten native time quanta.
+                self.assertAlmostEqual(slow.trajectory.dt_s, 10 * default.trajectory.dt_s,
+                                       delta=10 * TIME_QUANTUM_S)
+                self.assertEqual(again.diagnostics['speed_factor'], 1.)
+                self.assertEqual(again.trajectory.dt_s, default.trajectory.dt_s)
+        targets = {'left': wrist(.2), 'right': wrist(-.2)}
+        default = tools['plan_synchronized_motion'](targets)
+        slow = tools['plan_synchronized_motion'](targets, strategy=strategy)
+        self.assertTrue(default.ok, default.error)
+        self.assertTrue(slow.ok, slow.error)
+        self.assertAlmostEqual(slow.trajectory.dt_s, 10 * default.trajectory.dt_s)
+        self.assertFalse(self.left.commands or self.right.commands)
+
+    def test_recorded_return_speed_reaches_planner_without_changing_home_default(self):
+        from robol2l_deploy.contracts import ExecutionResult
+        from robol2l_deploy.adapters.arx import TIME_QUANTUM_S
+        captured = []
+        def capture(trajectory):
+            captured.append(trajectory)
+            return ExecutionResult(True, 0)
+        with patch.object(self.runtime, 'execute_trajectory', side_effect=capture):
+            self.runtime.return_recorded_joints(self.targets)
+            self.runtime.return_recorded_joints(self.targets, speed_factor=.1)
+            self.runtime.return_recorded_joints(self.targets)
+        self.assertAlmostEqual(captured[1].dt_s, 10 * captured[0].dt_s,
+                               delta=10 * TIME_QUANTUM_S)
+        self.assertEqual(captured[0].dt_s, captured[2].dt_s)
+        self.assertIsNone(captured[1].gripper_positions)
+        for side in ('left', 'right'):
+            np.testing.assert_allclose(captured[1].joint_positions[side][-1], self.targets[side])
+        self.assertFalse(self.left.commands or self.right.commands)
+
     def test_ik_residual_survives_both_arm_wrappers(self):
         state = self.station.get_robot_state()
         for side in ('left', 'right'):

@@ -461,7 +461,9 @@
       : '授权自动复位并继续 / Authorize reset & continue';
     $('exp-unlock').disabled = !!experiment.busy;
     $('exp-pause').disabled = terminal;
-    $('exp-end').disabled = terminal || experiment.busy;
+    const canAbort = state?.capabilities?.execution_abort_supported === true;
+    $('exp-end').disabled = terminal || !!experiment.end_requested || (experiment.busy && !canAbort);
+    $('exp-end').textContent = experiment.end_requested ? '正在结束… / Ending…' : '结束实验 / End experiment';
     $('exp-reset-card').hidden = !experiment.session_id;
     renderModelControls();
   }
@@ -479,8 +481,8 @@
     $('exp-machine-settings').textContent = locked ? '锁定 · 先结束实验 / Locked until experiment ends' : '可保存 / Ready to save';
   }
 
-  function renderMachineStatus() {
-    const caps = state?.capabilities, connection = state?.connection;
+  function renderSpeedRecommendation() {
+    const caps = state?.capabilities;
     const arx = (caps?.embodiment || '').startsWith('arx_');
     const speed = $('exp-speed'), speedNote = document.querySelector('.exp-speed-note');
     speed.closest('label').hidden = false;
@@ -488,10 +490,40 @@
     speed.step = arx ? 'any' : '0.01';
     if (arx) speed.removeAttribute('max'); else speed.max = '1';
     speedNote.hidden = false;
-    speedNote.textContent = '这是给 Agent 的推荐起始速度倍率，由 Agent 结合任务选择实际速度，不作为主机硬性限速。'
-      + (arx ? ' ARX 的运动时长由 SDK 规划。' : ' 取值范围：0 < s ≤ 1。')
-      + ' / Suggested starting speed for the agent; the agent chooses the actual speed for the task. This is not a host-enforced speed cap.'
-      + (arx ? ' ARX motion duration is planned by the SDK.' : ' Range: 0 < s ≤ 1.');
+    $('exp-speed-label').textContent = arx
+      ? '4 · 推荐速度系数（相对默认） / Recommended speed multiplier'
+      : '4 · 推荐运行速度 / Recommended speed factor';
+    if (arx) {
+      const active = !['idle', 'completed', 'exhausted', 'stopped'].includes(experiment.status || 'idle');
+      const baseline = active && Number.isFinite(experiment.speed_default_factor)
+        ? experiment.speed_default_factor : caps.motion_speed?.default_speed_factor;
+      const input = Number(active ? experiment.speed_factor : speed.value);
+      const recommended = active && Number.isFinite(experiment.speed_recommendation_factor)
+        ? experiment.speed_recommendation_factor : input * baseline;
+      const fmt = value => Number(value.toPrecision(8)).toString();
+      const legacy = active && !Number.isFinite(experiment.speed_recommendation_factor);
+      const calculation = legacy
+        ? `本轮旧记录的推荐倍率为 ${fmt(experiment.speed_factor)}，保持原值。 / This older run retains its original recommendation. `
+        : Number.isFinite(baseline) && Number.isFinite(recommended) && input > 0 && recommended > 0
+          ? `输入 ${fmt(input)} × 默认倍率 ${fmt(baseline)} = 模型收到的推荐倍率 ${fmt(recommended)}。 / Input ${fmt(input)} × default ${fmt(baseline)} = recommended factor ${fmt(recommended)}. `
+          : '输入正数后，将按“输入值 × 当前默认倍率”计算。 / Enter a positive multiplier; recommendation = input × configured default. ';
+      const reset = Number.isFinite(recommended) && recommended > 0
+        ? `网页自动复位也使用输入系数 × 默认倍率，实际复位倍率为 ${fmt(recommended)}；新实验沿用开始时保存的默认值，旧实验使用当前默认值。`
+          + ` / Automatic arm return uses input × default: ${fmt(recommended)}. New runs retain their starting default; older runs use the current default. `
+        : '网页自动复位同样使用输入系数 × 默认倍率。 / Automatic arm return also uses input × default. ';
+      speedNote.textContent = calculation + reset
+        + '倍率 1 对应 SDK 默认运动时序；0.1 约为十倍运动时长，越小越慢，不是 rad/s。对模型仅为建议，模型可依据任务调整；自动复位则按上述倍率规划，不改变夹爪速度。'
+        + ' / Factor 1 uses SDK timing; 0.1 gives approximately ten times the motion duration. Smaller is slower, not rad/s. Advisory for the model; arm return is planned with the factor above. Gripper speed is unchanged.';
+    } else {
+      speedNote.textContent = '这是给 Agent 的推荐起始速度倍率，由 Agent 结合任务选择实际速度，不作为主机硬性限速。取值范围：0 < s ≤ 1。'
+        + ' / Suggested starting speed for the agent, not a host-enforced cap. Range: 0 < s ≤ 1.';
+    }
+  }
+
+  function renderMachineStatus() {
+    const caps = state?.capabilities, connection = state?.connection;
+    const arx = (caps?.embodiment || '').startsWith('arx_');
+    renderSpeedRecommendation();
     $('exp-machine-connection').textContent = !caps ? '读取中 / Loading'
       : connection?.error ? '异常 / Error' : connection?.status === 'observation_read' ? '已连接 / Connected' : '等待状态 / Waiting for state';
     $('exp-machine-fault').textContent = !caps ? '未知 / Unknown'
@@ -839,6 +871,7 @@
     }
     renderSkillChoice();
     renderPresets();
+    renderSpeedRecommendation();
   }
 
   async function deletePreset(preset) {
@@ -857,7 +890,10 @@
 
   $('exp-preset-search').oninput = renderPresets;
   $('exp-preset-name').oninput = renderPresets;
-  for (const id of ['exp-goal', 'exp-criteria', 'exp-speed']) $(id).oninput = renderPresets;
+  for (const id of ['exp-goal', 'exp-criteria', 'exp-speed']) $(id).oninput = () => {
+    renderPresets();
+    renderSpeedRecommendation();
+  };
 
   bind('exp-preset-save', async () => {
     const name = $('exp-preset-name').value.trim();

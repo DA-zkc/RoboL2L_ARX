@@ -289,5 +289,46 @@
     "tools/verify_arx_localization.py": "2a2ffe039cdacb63c6c9faa82f7486401fd957bcd71ac934f49344b9b5ffe7a1",
     "tools/verify_arx_sam3_localization.py": "72ed64b2def626ab162e8e7a4cba66fe5dcaddb074c7bdcb508930de094fb254"
   },
-  "note": "Hashes describe source snapshot before publication-only packaging edits; no original Git history or runtime artifacts copied."
+  "note": "Hashes describe source snapshot before publication-only packaging edits; no original Git history or runtime artifacts copied.",
+  "updates": [
+    {
+      "date": "2026-11-26",
+      "source_commit": "88363c85757530aeaff1983216a715d1351366a7",
+      "scope": "CaP feedback fidelity, model request evidence, speed guidance and reset propagation, native wait errors and explicit cancellation",
+      "source_files_sha256": {
+        "docs/arx-sdk-cap-only.md": "aecc3017d3894f5083254bdd961bb5d149e3fdc531c9f7a9e6262ed2bdd89bc9",
+        "docs/feedback-history.md": "37b8c5d4f100c72d778f71559964514c6c8e52b47d7f8d913a6211620ba5c3ea",
+        "docs/single-task-experiment.md": "e13d5f4814837cf69ae401513aafe75f7a5a96be11e226e75a3360ea39ea3340",
+        "robol2l_deploy/adapters/arx.py": "2d95b561d62f6652e5abbd34db0eb21dd1ba1a2369225dc48f8eaa3636d0e9fd",
+        "robol2l_deploy/adapters/arx_dual.py": "82f342f5214ddf858845aab53667207875e83636a5b5e49159c849e428f24c5a",
+        "robol2l_deploy/adapters/arx_native.py": "ff47d2db03ac8d15832e65ebe3357b9415fd0185df8be5f9b054230a725dca8d",
+        "robol2l_deploy/arx_owner.py": "13af5cf194471a2854cd5b1408f55eae633ed96cf9b4790dfbdd77e41cb5a920",
+        "robol2l_deploy/cap/api.py": "7d7e8c056a0be52284b558a398e09cbbfda652364e30f763095d1e98131ec4c7",
+        "robol2l_deploy/cap/experiment.py": "ae9f87a0a5a2842479ff020aa05b96c3f736ccd6a885b096e8d8e4d51028f361",
+        "robol2l_deploy/cap/model.py": "7acc25ebf7615d2991bcace11a6f70663e68ecfc785030b51ced28ce00ee2998",
+        "robol2l_deploy/cap/prompt_history.py": "a6090b9857426f490454972f74f9296070fd6109fa06ab05a089f32ba4cedcd3",
+        "robol2l_deploy/cap/request_evidence.py": "69c101d3a66332b7315e5ec672ba873ac07143aa6fa41fbd88f8881eebb95e11",
+        "robol2l_deploy/cap/speed_guidance.py": "ae7e4c1b0ca664e21ccd06ef9239ff84ce013d3d941f5129488a59e18932828d",
+        "robol2l_deploy/runtime.py": "7dcaeff70234affadd7709c6826a80b995a800875d83682320e3eb29a9eb5ebb",
+        "robol2l_deploy/web.py": "5f3c42e6f3800b5915582b37d02e2208456383df44d948a9da59948a1e919f6f",
+        "robol2l_deploy/web/experiment.js": "87c314f15d20f2cbd857505639abee0978566a39a9491e40637f37b0d0f94ef7",
+        "robol2l_deploy/web/index.html": "cd6e99346cdf0e5ab97d4e80e48240066f86f771f9e805e6b861278543c54e81",
+        "tests/fixtures/arx-native-update-error.json": "5bdeffb603c0c71e57420e4dafc8bec549a0585ba7ff190ac4d196d7492f4ba1",
+        "tests/test_arx_dual.py": "84824432ee5aefd27c7b1e87c02a8f8e6f67aaf78dd63ed2c8193f2af43e4b49",
+        "tests/test_arx_gripper_grasp.py": "5cd70597392b94a47a3a3a564a5f9a6bdb98e077f41cfca430c02858313e4fbe",
+        "tests/test_arx_native_policy.py": "9a8e860cfaa835fef2f90045c3cbf01e9ee68e9495fc1ed244156f5ddcfab186",
+        "tests/test_arx_reference_wait.py": "316eeba4043c6325edd2eec3acd280e540900d2b2ea190543106bfeb9500ba07",
+        "tests/test_experiment_speed_ui.js": "5627d098f2b14375e8a7bea5a2e42a3f1cc3e1c8eaae1023879d9d9af444a687",
+        "tests/test_feedback_motion_history.py": "270193a578cf4d0211bf04ee3c6be1b61176ce9256ad90934a7cc17baf13060a",
+        "tests/test_model_request_evidence.py": "dee3dd2d42054f02663cf47082eb036faf874dfc4c5d5a8e0bea61755702feb4",
+        "tests/test_operator_continuation.py": "97365298fb32a8a8232a302f4802ee2ac59ecf57384145e6b5408163a1221e5f"
+      },
+      "publication_overrides_preserved": [
+        "AGENTS.md",
+        "README.md",
+        "pyproject.toml",
+        ".gitignore"
+      ]
+    }
+  ]
 }

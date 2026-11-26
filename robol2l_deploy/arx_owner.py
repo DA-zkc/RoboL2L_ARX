@@ -76,7 +76,7 @@ class OwnerState:
         return dict(instance=self.instance, identity=self.identity, attached=self.token is not None,
                     authorized=self.authorized, stopped=self.stopped, closing=self.closing, last_hold=self.last_hold,
                     pid=os.getpid(), lifecycle='resident_arx_owner_v1', manual_positioning_version=1,
-                    native_query_version=1, client_liveness='kernel_process_exit')
+                    native_query_version=2, client_liveness='kernel_process_exit')
 
     def lose_client(self, reason):
         from .adapters.arx_support import preserve_support
@@ -179,6 +179,10 @@ class OwnerState:
             args, kwargs = body.get('args', []), body.get('kwargs', {})
             if name == 'set_joint_positions' and 'positions' in kwargs:
                 kwargs['positions'] = np.asarray(kwargs['positions'], dtype=float)
+                if hasattr(arm, '_ctrl'):
+                    from .adapters.arx_native import monitor_reference
+                    with arm._ctrl._cmd_lock:
+                        monitor_reference(arm._ctrl)
             # Mark before dispatch, so even an exception/lost reply cannot leave
             # an accepted gravity transition invisible to owner lease expiry.
             if name == 'gravity_compensation':
@@ -195,6 +199,7 @@ class OwnerClient:
         self.token = None
         self.instance = None
         self.manual_positioning_version = 0
+        self.native_query_version = 0
         self.lost = False
         self.lock = threading.RLock()
         self.done = threading.Event()
@@ -208,6 +213,7 @@ class OwnerClient:
                 result = rpc(self.path, dict(op='attach', identity=self.identity))
                 self.token, self.instance = result['token'], result['instance']
                 self.manual_positioning_version = result.get('manual_positioning_version', 0)
+                self.native_query_version = result.get('native_query_version', 0)
                 self.thread = threading.Thread(target=self._heartbeat, daemon=True)
                 self.thread.start()
 

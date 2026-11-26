@@ -63,6 +63,7 @@ class StationRuntime:
         self.allow_motion = allow_motion
         self.physical_session = None
         self.paused = False; self.faulted = False; self.closed = False
+        self._execution_abort = threading.Event()
         self.connection = dict(status='not_connected', robot_state=None, cameras={})
         self.last_execution = None
         self.home_path = self.directory / "home.json"
@@ -205,11 +206,17 @@ class StationRuntime:
         with self.lease():
             self._local.owner = True
             self._local.stop_requested = should_stop
+            self._execution_abort.clear()
             try:
                 yield
             finally:
                 self._local.stop_requested = None
                 self._local.owner = False
+
+    def request_execution_abort(self):
+        """Explicit experiment End, distinct from dispatch-boundary Pause."""
+        self._execution_abort.set()
+        self.event('operator_execution_abort_requested')
 
     def describe(self):
         operations = ['get_robot_state','get_observation','solve_ik','plan_motion','plan_synchronized_motion',
@@ -219,6 +226,7 @@ class StationRuntime:
         capabilities = self.adapter.describe()
         arx = capabilities.get('embodiment') in ('arx_x5_2023', 'arx_x5_2023_dual')
         return dict(capabilities, motion_enabled=self.allow_motion, paused=self.paused,
+                    execution_abort_supported=bool(getattr(self.adapter, 'supports_execution_abort', False)),
                     physical_session=self.physical_session.describe() if self.physical_session else None,
                     faulted=self.faulted, busy=self._gate.locked(),
                     endpoint_accuracy_policy=(
@@ -455,7 +463,9 @@ class StationRuntime:
         if hasattr(self.adapter, 'plan_pair'):
             def execute_pair():
                 return self.adapter.execute(payload, trajectory, permitted=self._segment_permitted,
-                                            targets=targets, tolerance=tolerance)
+                                            targets=targets, tolerance=tolerance,
+                                            **({'abort_requested': self._execution_abort.is_set}
+                                               if getattr(self.adapter, 'supports_execution_abort', False) else {}))
             return self._dispatch('execute_trajectory', execute_pair)
         return self._dispatch('execute_trajectory',lambda:self.adapter.execute(payload,trajectory))
 
@@ -470,7 +480,9 @@ class StationRuntime:
                 self.adapter.check_hands(positions)
             except (ValueError, ApiError) as error:
                 return failure(ErrorCode.INVALID_REQUEST, str(error))
-            return self._dispatch('set_grippers', lambda: self.adapter.move_hands(positions, self._segment_permitted))
+            return self._dispatch('set_grippers', lambda: self.adapter.move_hands(positions, self._segment_permitted,
+                **({'abort_requested': self._execution_abort.is_set}
+                   if getattr(self.adapter, 'supports_execution_abort', False) else {})))
 
     def set_gripper(self, position, *, arm='primary'):
         if hasattr(self.adapter, 'plan_pair'):
@@ -539,13 +551,14 @@ class StationRuntime:
     def move_synchronized(self,*args,**kwargs):return self._public_tools()['move_synchronized'](*args,**kwargs)
     def plan_synchronized_motion(self,*args,**kwargs):return self._public_tools()['plan_synchronized_motion'](*args,**kwargs)
 
-    def return_recorded_joints(self, recorded, *, arm='both'):
+    def return_recorded_joints(self, recorded, *, arm='both', speed_factor=None):
         with self.lease():
             try:
                 state = self.get_robot_state()
                 if arm != 'both' and arm not in state.arms:
                     return failure(ErrorCode.NOT_FOUND, 'arm_unavailable')
-                trajectory, payload = self.adapter.plan_recorded_return(state, recorded, arm)
+                options = {} if speed_factor is None else {'speed_factor': speed_factor}
+                trajectory, payload = self.adapter.plan_recorded_return(state, recorded, arm, **options)
                 self._store_plan(trajectory, payload, self.adapter.binding())
             except (ValueError, ApiError) as exc:
                 return ExecutionResult(False, 0, error=exc if isinstance(exc, ApiError) else

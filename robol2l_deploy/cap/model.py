@@ -7,6 +7,7 @@ import cv2
 from franka_player.runtime import request_decision
 from .program import compact
 from .prompt_history import prompt_history
+from .speed_guidance import ARX_SPEED_GUIDANCE
 
 SYSTEM = '''You are the RoboL2L deployment Player's basic Code-as-Policy agent.
 Write explanations, checkpoint messages and failure explanations in Chinese.
@@ -71,9 +72,22 @@ When verification.required is false, judge completion from observations yourself
 finish records your judgment, not an independent physical-task verification.
 Each response sees fresh observations and prior version feedback. Repair errors
 using summarized call evidence; the full trace stays in the archived result.json.
-feedback.key_results preserves structured perception geometry and per-target IK results,
-linked by call_index/id and observation_id. Use these values even when raw result,
-stdout or sampled calls are excerpted. An excerpt explicitly lists omitted records;
+feedback.key_results preserves structured perception geometry, per-target IK results,
+and chronological motion/gripper inputs and complete public receipts, including
+started_s/finished_s, per-arm feedback, measured gripper angles, native completion,
+physical_arrival_verified and grasp_verified when supplied. These are measurements
+and reported semantics, not additional motion gates. ok=True or SDK reference
+completion does not establish physical arrival or a grasp; false/null stays unverified.
+Records are linked by call_index/id and observation_id. Supplementary calls are
+whole trace samples; duplicate result objects may reference key_result_call_index.
+Use key_results even when stdout or
+supplementary results are omitted. Budget omissions remove whole records/values,
+never fragments of receipt fields or a misleading prefix of the executed source.
+Within one motion record, {"_same_as":"output.diagnostics.per_arm"} references
+that SAME record's identical final per-arm receipt; this is lossless deduplication,
+not missing waypoint feedback. Different intermediate receipts remain distinct.
+The archived full trace is not a file-reading capability available to your program.
+An excerpt explicitly lists omitted records;
 it is not proof that a tool failed or that a target must be perceived again.
 Omitted samples are not proof of successful motion or grasp. Avoid tight loops
 polling get_robot_state thousands of times; use bounded observations and native
@@ -115,9 +129,11 @@ def messages(api,observation,history,verification):
             content.append({'type':'image_url','image_url':{'url':'data:image/jpeg;base64,'+base64.b64encode(encoded).decode()}})
     system = SYSTEM
     if api.environment.embodiment.startswith('arx_'):
+        system = system.replace('Prefer plan_motion with\nstrategy=None, then check plan.ok before execute_trajectory(plan.trajectory).',
+            'Use plan_motion with an explicit MotionStrategy when selecting a speed factor, '
+            'then check plan.ok before execute_trajectory(plan.trajectory).')
         system = system.replace('Use 0.05 as the starting recommendation, lower for contact/placement/held objects,\nand choose within the native coefficient domain 0<s<=1. There is no additional\nproject speed cap. Explain speed\nchoices in your Chinese program reason or print. Check the accepted speed_factor\nand duration_s in planning feedback.\n',
-            'ARX defaults to the installed SDK planner timing. A positive speed factor is an optional caller choice; '
-            'there is no project-recommended slowdown or upper multiplier. Read the accepted duration and native limits.\n')
+            ARX_SPEED_GUIDANCE + '\n')
         system += ARX_OPERATOR_POLICY
     if api.environment.embodiment == 'arx_x5_2023_dual':
         system += ('\nThis dual X5 station supplies both arms’ encoder feedback. Use named left/right joint vectors. '

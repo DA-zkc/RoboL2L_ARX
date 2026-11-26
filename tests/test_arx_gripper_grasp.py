@@ -133,4 +133,3 @@ class GraspFeedbackTests(unittest.TestCase):
         self.assertFalse(report['result']['feedback']['grasp_verified'])
         self.assertAlmostEqual(report['result']['opening'], .52265845, places=5)
         self.assertFalse(self.rt.faulted)
-

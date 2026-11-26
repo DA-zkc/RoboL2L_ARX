@@ -321,7 +321,7 @@ def hardware_handler(base,runtime,model_config=None,cap_controller=None,experime
                 if teach.token and route != '/api/hardware/pause':
                     raise ValueError('手动摆位中，请先锁定当前位置 / Finish manual positioning first')
                 # Keep human/manual dispatch and the two agent runners mutually exclusive.
-                if experiment.busy() and route not in ('/api/hardware/experiment/pause','/api/hardware/pause'):
+                if experiment.busy() and route not in ('/api/hardware/experiment/pause','/api/hardware/experiment/end','/api/hardware/pause'):
                     raise ValueError('experiment_busy')
                 if route.startswith('/api/hardware/experiment/'):
                     action=route.rsplit('/',1)[-1]
